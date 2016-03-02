@@ -25,8 +25,8 @@ int
 main(int argc, char *argv[]) 
 {
     /*TODO read these vars from a config file or something*/
-    char *server = "162.213.39.42";
-    char *channel = "#Y35chan";
+    char server[] = "162.213.39.42";
+    char channel[] = "#Y35chan";
     unsigned int port = 6667;
     char nick[] = "todd";
     int debug = 1;
@@ -88,6 +88,7 @@ host_conn(char *server, unsigned int port, int *sockfd)
         return 0;
     }
 
+    // points sockaddr pointer to servaddr because connect takes sockaddr structs
     if (connect(*sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
         return 0;
     }

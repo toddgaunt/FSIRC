@@ -1,7 +1,9 @@
 #! /usr/bin/env python3
+# This program is the commandline tool for interacting with ircd.
+# It will allow you to control ircd from the cmd line.
 
-import socket
 import argparse
+import subprocess
 import json
 
 def main():
@@ -34,7 +36,6 @@ def main():
                         help = 'Turns on more verbose output.')
 
     args = parser.parse_args()
-    s = socket.socket()
 
 def read_config(file, name):
     """Reads json configuration file"""
