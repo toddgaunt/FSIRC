@@ -3,11 +3,12 @@
 # It will allow you to control ircd from the cmd line.
 
 import argparse
-import subprocess
+import os
 import json
 
 def main():
     conf = read_config('config.json', 'default')
+    fifo_file = "/tmp/ircd.fifo"
 
     parser = argparse.ArgumentParser(description = "Simple python based irc-bot daemon")
 
@@ -36,6 +37,17 @@ def main():
                         help = 'Turns on more verbose output.')
 
     args = parser.parse_args()
+
+    try:
+        os.remove(fifo_file)
+        print("removed lingering tmp file.")
+    except OSError:
+        print("no fifo file yet.")
+    os.mkfifo(fifo_file)
+    with open("/tmp/ircd.fifo", 'wb') as f:
+        f.write(b"hello\n")
+    os.remove(fifo_file)
+    quit()
 
 def read_config(file, name):
     """Reads json configuration file"""
