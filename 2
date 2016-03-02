@@ -1,0 +1,73 @@
+/*
+ * ircd is a simple irc-bot daemon
+ * it will auto-save messages for you
+ * and can be called from the command line
+ * to send messages to the specified channel.
+ */
+
+#include <stdio.h> 
+#include <stdlib.h>
+#include <string.h> // used for string manipulation
+#include <netdb.h>
+#include <sys/socket.h> // used for creating posix socket that allows irc connection
+
+#define MAXLINE 4096
+
+/* function declarations */
+int host_conn(char *server, unsigned int port, int *sockfd);
+int chan_conn(char *channel);
+int send_msg();
+int read_msg();
+
+int 
+main(int argc, char *argv[]) 
+{
+    /*TODO read these vars from a json file or something*/
+    char server[] = "chat.freenode.net";
+    char channel[] = "#Y35chan";
+    unsigned int port = 6667;
+    char nick[] = "todd";
+    int debug = 1;
+    
+    char recvline[MAXLINE+1], out[MAXLINE+1];
+
+    if (!host_conn(server, port, &sockfd)) {
+        printf("Failed to connect to server.\n");
+        exit(1);
+    }
+
+    /*TODO substitute hardcoded strings for variables above*/
+    send_msg(sockfd, "NICK toddbot\r\n", debug);
+    send_msg(sockfd, "USER todd 8 * : Todd Gaunt\r\n", debug);
+    send_msg(sockfd, "JOIN #Y35chan\r\n", debug);
+
+    return 0;
+}
+
+int 
+host_conn(char *server, unsigned int port, int *sockfd)
+{
+    struct sockaddr_in servaddr; 
+    bzero(&servaddr, sizeof(myStruct)); //Zeros out memory location the new struct uses.
+    servaddr
+    return 0;
+}
+
+int 
+chan_conn(char *channel)
+{
+    return 0;
+}
+
+int 
+send_msg()
+{
+    return 0;
+}
+
+int 
+read_msg()
+/*reads next message from irc*/
+{
+    return 0;
+}

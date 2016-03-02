@@ -1,0 +1,14 @@
+{
+"default":
+    {
+    "host":"chat.freenode.net",
+    "channel":"#Y35chan",
+    "port":6667,
+    "nick":"todd",
+    "realname":"toddbot"
+    },
+"todd":
+    {
+    "host":"but"
+    }
+}
