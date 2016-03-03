@@ -39,14 +39,12 @@ def main():
                         help = 'Turns on more verbose output.')
 
     args = parser.parse_args()
-    try:
-        os.remove(fifo_file)
-    except OSError:
-        print('will generate pipe.')
+
     os.mkfifo(fifo_file)
     message = b'hello\r\n'
     fd = open(fifo_file, 'wb', 0)
     print(message)
+    fd.write(b'1')
     fd.write(message)
     fd.close()
 

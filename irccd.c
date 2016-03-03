@@ -8,17 +8,20 @@
 
 #include <stdio.h> 
 #include <stdlib.h>
-#include <string.h> // used for string manipulation
+#include <string.h>
 #include <netdb.h>
-#include <unistd.h> // gives the read()
-#include <arpa/inet.h> // gives the inet_pton()
-#include <fcntl.h> // For declaring O_READONLY
+#include <unistd.h>
+#include <arpa/inet.h> 
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 //#include <sys/stat.h> // used for creating FIFO pipe
-#include <sys/types.h> // used for assigning rw permissions to fifo file
-#include <sys/socket.h> // used for creating posix socket that allows irc connection
 
 #define MAXLINE 4096 // For reading irc messages
-#define MAX_BUF 1024 // For reading named pipe
+#define MAX_BUF 4096 // For reading fifo pipe
+#define READ_MOD 4 // switch case for mode
+#define WRIT_MOD 2 // switch case for mode
+#define DEBUG_MOD 0 // switch case for mode
 
 /* function declarations */
 int host_conn(char *server, unsigned int port, int *sockfd);
@@ -29,11 +32,12 @@ int read_msg(int sockfd, char *recvline, int debug);
 int 
 main(int argc, char *argv[]) 
 {
-    /* the piping code */
+    /* Defining pipe and mode */
     char *ircd_fifo = "/tmp/ircd.fifo";
     char buf[MAX_BUF];
 
-    /*TODO read these vars from a config file or something*/
+    /*TODO read these vars from a config file or something
+    * Use sprintf to format them */
     char server[] = "162.213.39.42";
     //char channel[] = "#Y35chan";
     unsigned int port = 6667;
@@ -42,7 +46,7 @@ main(int argc, char *argv[])
    
     // Message buffers for sending and receiving
     char recvline[MAXLINE+1], out[MAXLINE+1];
-    int sockfd; // Stores the actual socket
+    int sockfd;
 
     // Creates socket and connects to server
     if (!host_conn(server, port, &sockfd)) {
@@ -53,46 +57,46 @@ main(int argc, char *argv[])
     /*TODO substitute hardcoded strings for variables*/
     send_msg(sockfd, "NICK iwakura_lain\r\n", debug);
     send_msg(sockfd, "USER iwakura_lain 8 * :Iwakura\r\n", debug);
-    //send_msg(sockfd, "JOIN #Y35chan\r\n", debug);
     send_msg(sockfd, "JOIN #Y35chan\r\n", debug);
 
-    char *pos;
-    int n, fd;
+    int fd;
+    int actmode = READ_MOD; // mode the program is in.
     while(1) {
-        /* opens the pipe to read its contents 
-         * TODO move this pipe out of while loop so python script
-         * can tell it which server to connect to. */
-        /* created the named pipe */
         fd = open(ircd_fifo, O_RDWR);
-        // if open succeeds, wait for pipe
         if (fd >= 0) {
             memset(&buf, 0, sizeof(buf)); //Clears buffer
-            /*TODO add a switch case statement for different message codes sent from the client*/
             read(fd, buf, MAX_BUF);
             if (debug) printf("PIPE: %s\r\n", buf);
-            send_msg(sockfd, "PRIVMSG #Y35chan :Hey what's up?\r\n", debug);
+            actmode = buf[0]; // code is first bit of pipe message, might make it first 4 later
+        } else {
+            actmode = READ_MOD; // if the pipe is closed, go back to reading.
         }
         close(fd);
-        remove(ircd_fifo); //removes the fifo file, because the python scripts creates a new one.
+        remove(ircd_fifo);
 
-        // Reading messages from irc
-        recvline[0] = 0;
-        n = read_msg(sockfd, recvline, debug);
-
-        if (n > 0) {
-            recvline[n] = 0;
-            // Sees if the server sent a ping message
-            if (strstr(recvline, "PING") != NULL) {
-                out[0] = 0;
-                pos = strstr(recvline, " ")+1;
-                sprintf(out, "PONG %s\r\n", pos);
-                send_msg(sockfd, out, debug);
-            }
-        } else {
-            exit(0);
+        switch (actmode) {
+            case -1:
+                exit(0);
+            case DEBUG_MOD:
+                if (debug != 0) debug = 0;
+                else debug = 1;
+                break;
+            case 1:
+                break;
+            case WRIT_MOD: // send_msg
+                send_msg(sockfd, "PRIVMSG #Y35chan :Hey what's up?\r\n", debug);
+                break;
+            case READ_MOD: // read_msg
+                // Reading messages from irc
+                read_msg(sockfd, recvline, debug);
+                break;
+            case 8:
+                break;
+            default:
+                break;
         }
     }
-    exit(0);
+    exit(1); // if while loop is broken, exit with error.
 }
 
 int 
@@ -134,13 +138,30 @@ send_msg(int sockfd, char *out, int debug)
     return send(sockfd, out, strlen(out), 0);
 }
 
-int 
+int
 read_msg(int sockfd, char *recvline, int debug)
-/*reads next message from irc*/
+/*reads next message from irc, and replies to any pings with send_msg*/
 {
-    int n =  read(sockfd, recvline, MAXLINE);
+    recvline[0] = 0;
+    int n = read(sockfd, recvline, MAXLINE);
+
     if (n > 0 && debug) {
         printf("IN: %s", recvline);
+    }
+
+    // If message is PING, reply PONG
+    char *out;
+    if (n > 0) {
+        recvline[n] = 0;
+        // Sees if the server sent a ping message
+        if (strstr(recvline, "PING") != NULL) {
+            // Replaces the 'I' in ping with 'O'.
+            out = recvline;
+            out[1] = 'O';
+            //pos = strstr(recvline, " ")+1;
+            //sprintf(out, "PONG %s\r\n", pos);
+            send_msg(sockfd, out, debug);
+        }
     }
     return n;
 }
