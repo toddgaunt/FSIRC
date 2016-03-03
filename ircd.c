@@ -54,7 +54,7 @@ main(int argc, char *argv[])
     send_msg(sockfd, "NICK iwakura_lain\r\n", debug);
     send_msg(sockfd, "USER iwakura_lain 8 * :Iwakura\r\n", debug);
     //send_msg(sockfd, "JOIN #Y35chan\r\n", debug);
-    send_msg(sockfd, "JOIN #lainchan\r\n", debug);
+    send_msg(sockfd, "JOIN #Y35chan\r\n", debug);
 
     char *pos;
     int n, fd;
@@ -70,7 +70,7 @@ main(int argc, char *argv[])
             /*TODO add conditionals for different messages sent from the client*/
             read(fd, buf, MAX_BUF);
             if (debug) printf("PIPE: %s\r\n", buf);
-            send_msg(sockfd, "PRIVMSG #lainchan :Hey what's up?\r\n", debug);
+            send_msg(sockfd, "PRIVMSG #Y35chan :Hey what's up?\r\n", debug);
         }
         close(fd);
         remove(ircd_fifo); //removes the fifo file, because the python scripts creates a new one.
