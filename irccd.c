@@ -67,7 +67,7 @@ main(int argc, char *argv[])
         // if open succeeds, wait for pipe
         if (fd >= 0) {
             memset(&buf, 0, sizeof(buf)); //Clears buffer
-            /*TODO add conditionals for different messages sent from the client*/
+            /*TODO add a switch case statement for different message codes sent from the client*/
             read(fd, buf, MAX_BUF);
             if (debug) printf("PIPE: %s\r\n", buf);
             send_msg(sockfd, "PRIVMSG #Y35chan :Hey what's up?\r\n", debug);

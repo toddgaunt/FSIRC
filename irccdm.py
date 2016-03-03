@@ -1,6 +1,7 @@
 #! /usr/bin/env python3
 # This program is the commandline tool for interacting with ircd.
 # It will allow you to control ircd from the cmd line.
+#TODO allow for commands to be looped infinitely with an argument, eg. send READ until break
 
 import argparse
 import os

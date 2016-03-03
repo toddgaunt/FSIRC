@@ -1,10 +1,10 @@
 CFLAGS=-Wall -g
 
 clean:
-	rm -f ircd
+	rm -f irccd
 
 all:
-	make ircd
+	make irccd
 
 test:
 
