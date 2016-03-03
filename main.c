@@ -4,8 +4,7 @@
  * and can be called from the command line
  * to send messages to the specified channel.
  */
-//TODO open up a inter-process communication socket or named pipe
-//for python scritp to communicate with
+//TODO Make it so that the program is more responsive to the control script.
 
 #include <stdio.h> 
 #include <stdlib.h>
@@ -14,7 +13,8 @@
 #include <unistd.h> // gives the read()
 #include <arpa/inet.h> // gives the inet_pton()
 #include <fcntl.h> // For declaring O_READONLY
-#include <sys/stat.h> // used for creating FIFO pipe
+//#include <sys/stat.h> // used for creating FIFO pipe
+#include <sys/types.h> // used for assigning rw permissions to fifo file
 #include <sys/socket.h> // used for creating posix socket that allows irc connection
 
 #define MAXLINE 4096 // For reading irc messages
@@ -30,18 +30,14 @@ int
 main(int argc, char *argv[]) 
 {
     /* the piping code */
-    int fd;
-    char *ircdpipe = "/tmp/ircd.fifo";
+    char *ircd_fifo = "/tmp/ircd.fifo";
     char buf[MAX_BUF];
-
-    /* created the named pipe */
-    //mkfifo(myfifo, 0666);
 
     /*TODO read these vars from a config file or something*/
     char server[] = "162.213.39.42";
-    char channel[] = "#Y35chan";
+    //char channel[] = "#Y35chan";
     unsigned int port = 6667;
-    char nick[] = "todd";
+   // char nick[] = "todd";
     int debug = 1;
    
     // Message buffers for sending and receiving
@@ -50,26 +46,34 @@ main(int argc, char *argv[])
 
     // Creates socket and connects to server
     if (!host_conn(server, port, &sockfd)) {
-        printf("192.186.157.43");
+        printf("connection failed.");
         exit(1);
     }
 
-    /*TODO substitute hardcoded strings for variables above*/
-    send_msg(sockfd, "NICK toddbot\r\n", debug);
-    send_msg(sockfd, "USER todd 8 * : Todd Gaunt\r\n", debug);
-    send_msg(sockfd, "JOIN #Y35chan\r\n", debug);
-    send_msg(sockfd, "MSG #Y35chan : Hey what's up?\r\n", debug);
+    /*TODO substitute hardcoded strings for variables*/
+    send_msg(sockfd, "NICK iwakura_lain\r\n", debug);
+    send_msg(sockfd, "USER iwakura_lain 8 * :Iwakura\r\n", debug);
+    //send_msg(sockfd, "JOIN #Y35chan\r\n", debug);
+    send_msg(sockfd, "JOIN #lainchan\r\n", debug);
 
-    char *pos, *cmd;
-    int n;
+    char *pos;
+    int n, fd;
     while(1) {
         /* opens the pipe to read its contents 
-         * TODO add error checking */
-        memset(&buf, 0, sizeof(buf)); //Clears buffer
-        fd = open(ircdpipe, O_RDONLY);
-        read(fd, buf, MAX_BUF);
-        printf("Recieved: %s\n", buf);
+         * TODO move this pipe out of while loop so python script
+         * can tell it which server to connect to. */
+        /* created the named pipe */
+        fd = open(ircd_fifo, O_RDWR);
+        // if open succeeds, wait for pipe
+        if (fd >= 0) {
+            memset(&buf, 0, sizeof(buf)); //Clears buffer
+            /*TODO add conditionals for different messages sent from the client*/
+            read(fd, buf, MAX_BUF);
+            if (debug) printf("PIPE: %s\r\n", buf);
+            send_msg(sockfd, "PRIVMSG #lainchan :Hey what's up?\r\n", debug);
+        }
         close(fd);
+        remove(ircd_fifo); //removes the fifo file, because the python scripts creates a new one.
 
         // Reading messages from irc
         recvline[0] = 0;
@@ -84,6 +88,8 @@ main(int argc, char *argv[])
                 sprintf(out, "PONG %s\r\n", pos);
                 send_msg(sockfd, out, debug);
             }
+        } else {
+            exit(0);
         }
     }
     exit(0);

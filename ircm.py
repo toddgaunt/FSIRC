@@ -5,6 +5,7 @@
 import argparse
 import os
 import json
+import time
 
 def main():
     conf = read_config('config.json', 'default')
@@ -37,24 +38,25 @@ def main():
                         help = 'Turns on more verbose output.')
 
     args = parser.parse_args()
-
     try:
         os.remove(fifo_file)
-        print("removed lingering tmp file.")
     except OSError:
-        print("no fifo file yet.")
+        print('will generate pipe.')
     os.mkfifo(fifo_file)
-    with open("/tmp/ircd.fifo", 'wb') as f:
-        f.write(b"hello\n")
-    os.remove(fifo_file)
-    quit()
+    message = b'hello\r\n'
+    fd = open(fifo_file, 'wb', 0)
+    print(message)
+    fd.write(message)
+    fd.close()
+
+    #else:
+     #   print(fifo_file + ' not found. ircd may not be running.')
 
 def read_config(file, name):
     """Reads json configuration file"""
-    with open(file, 'rt') as f:
-        data = json.loads(f.read())
+    with open(file, 'rt') as fd:
+        data = json.loads(fd.read())
         conf = data[name]
-        print(conf)
         return conf
 
 def read_msg():
