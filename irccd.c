@@ -19,9 +19,11 @@
 
 #define MAXLINE 4096 // For reading irc messages
 #define MAX_BUF 4096 // For reading fifo pipe
-#define READ_MOD 4 // switch case for mode
-#define WRIT_MOD 2 // switch case for mode
-#define DEBUG_MOD 0 // switch case for mode
+#define QUIT_MOD 'q' // quit mode
+#define READ_MOD 'r' // read mode
+#define WRIT_MOD 'w' // write mode
+#define DEBUG_MOD 'd' // debug mode
+#define CONN_MOD 'c' // connection mode
 
 /* function declarations */
 int host_conn(char *server, unsigned int port, int *sockfd);
@@ -43,6 +45,7 @@ main(int argc, char *argv[])
     unsigned int port = 6667;
    // char nick[] = "todd";
     int debug = 1;
+    int reconn = 0;
    
     // Message buffers for sending and receiving
     char recvline[MAXLINE+1], out[MAXLINE+1];
@@ -67,15 +70,16 @@ main(int argc, char *argv[])
             memset(&buf, 0, sizeof(buf)); //Clears buffer
             read(fd, buf, MAX_BUF);
             if (debug) printf("PIPE: %s\r\n", buf);
-            actmode = buf[0]; // code is first bit of pipe message, might make it first 4 later
+            actmode = WRIT_MOD;//buf[0]; // code is first bit of pipe message, might make it first 4 later
         } else {
             actmode = READ_MOD; // if the pipe is closed, go back to reading.
         }
         close(fd);
         remove(ircd_fifo);
+        if (debug) printf("MODE: %c\r\n", actmode);
 
         switch (actmode) {
-            case -1:
+            case QUIT_MOD:
                 exit(0);
             case DEBUG_MOD:
                 if (debug != 0) debug = 0;
@@ -83,17 +87,26 @@ main(int argc, char *argv[])
                 break;
             case 1:
                 break;
-            case WRIT_MOD: // send_msg
+            case READ_MOD:
+                if (debug) printf("READING...\n");
+                if (read_msg(sockfd, recvline, debug) && reconn) {
+                    if (!host_conn(server, port, &sockfd)) {
+                        printf("connection failed.");
+                        exit(1);
+                    }
+                }
+                break;
+            case WRIT_MOD:
                 send_msg(sockfd, "PRIVMSG #Y35chan :Hey what's up?\r\n", debug);
                 break;
-            case READ_MOD: // read_msg
-                // Reading messages from irc
-                read_msg(sockfd, recvline, debug);
+            case CONN_MOD:
+                if (reconn == 0) reconn = 1;
+                else reconn = 0;
                 break;
             case 8:
                 break;
             default:
-                break;
+                actmode = READ_MOD;
         }
     }
     exit(1); // if while loop is broken, exit with error.
@@ -150,16 +163,14 @@ read_msg(int sockfd, char *recvline, int debug)
     }
 
     // If message is PING, reply PONG
-    char *out;
+    char *pos, out[MAXLINE+1];
     if (n > 0) {
         recvline[n] = 0;
         // Sees if the server sent a ping message
         if (strstr(recvline, "PING") != NULL) {
-            // Replaces the 'I' in ping with 'O'.
-            out = recvline;
-            out[1] = 'O';
-            //pos = strstr(recvline, " ")+1;
-            //sprintf(out, "PONG %s\r\n", pos);
+            //out[0] = 0;
+            pos = strstr(recvline, " ")+1;
+            sprintf(out, "PONG %s\r\n", pos);
             send_msg(sockfd, out, debug);
         }
     }

@@ -44,8 +44,7 @@ def main():
     message = b'hello\r\n'
     fd = open(fifo_file, 'wb', 0)
     print(message)
-    fd.write(b'1')
-    fd.write(message)
+    fd.write(b'whello')
     fd.close()
 
     #else:
