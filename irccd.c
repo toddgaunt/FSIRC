@@ -62,7 +62,8 @@ main(int argc, char *argv[])
     send_msg(sockfd, "USER iwakura_lain 8 * :Iwakura\r\n", debug);
     send_msg(sockfd, "JOIN #Y35chan\r\n", debug);
 
-    int fd;
+    char pos[MAX_BUF];
+    int fd, i;
     int actmode = READ_MOD; // mode the program is in.
     while(1) {
         fd = open(ircd_fifo, O_RDWR);
@@ -70,7 +71,10 @@ main(int argc, char *argv[])
             memset(&buf, 0, sizeof(buf)); //Clears buffer
             read(fd, buf, MAX_BUF);
             if (debug) printf("PIPE: %s\r\n", buf);
-            actmode = WRIT_MOD;//buf[0]; // code is first bit of pipe message, might make it first 4 later
+            actmode = buf[0]; // code is first bit of pipe message, might make it first 4 later
+            for (i = 0; i<sizeof(buf)-1; i++) {
+                pos[i] = buf[i+1]; //copies over msg
+            }
         } else {
             actmode = READ_MOD; // if the pipe is closed, go back to reading.
         }
@@ -97,7 +101,8 @@ main(int argc, char *argv[])
                 }
                 break;
             case WRIT_MOD:
-                send_msg(sockfd, "PRIVMSG #Y35chan :Hey what's up?\r\n", debug);
+                sprintf(out, "PRIVMSG #Y35chan :%s\r\n", pos);
+                send_msg(sockfd, out, debug);
                 break;
             case CONN_MOD:
                 if (reconn == 0) reconn = 1;
