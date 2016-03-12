@@ -22,7 +22,7 @@ def main():
                         type = str, default = conf['channel'],
                         help = 'Channel to connect to.')
 
-    parser.add_argument('-p', '--port', metavar = 'port',
+    parser.add_argument('-P', '--port', metavar = 'port',
                         type = int, default = conf['port'],
                         help = 'Which port to connect with')
 
@@ -30,7 +30,15 @@ def main():
                         type = str, default = conf['nick'],
                         help = 'Nick to connect with.')
 
-    parser.add_argument('-r', '--realname', metavar = 'realname',
+    parser.add_argument('-w', '--write',
+                        type = str,
+                        help = 'Write a line of text to irc.')
+
+    parser.add_argument('-r', '--read',
+                        action = 'store_true', default = False,
+                        help = 'Read the next line of text on irc.')
+
+    parser.add_argument('-R', '--Realname', metavar = 'realname',
                         type = str, default = conf['realname'],
                         help = 'Realname to connect with.')
 
@@ -40,12 +48,19 @@ def main():
 
     args = parser.parse_args()
 
-    os.mkfifo(fifo_file)
-    message = b'hello\r\n'
-    fd = open(fifo_file, 'wb', 0)
-    print(message)
-    fd.write(b'whello, I\'m lain how are you?')
-    fd.close()
+    if args.write:
+        os.mkfifo(fifo_file)
+        fd = open(fifo_file, 'wb', 0)
+        msg = str.encode(args.write)
+        print (msg)
+        fd.write(b'w' + msg)
+        fd.close()
+    elif args.read:
+        pass
+    elif args.auto:
+        pass
+    else:
+        pass
 
     #else:
      #   print(fifo_file + ' not found. ircd may not be running.')
@@ -60,7 +75,10 @@ def read_config(file, name):
 def read_msg():
     pass
 
-def send_msg():
+def write_msg():
+    pass
+
+def open_pipe():
     pass
 
 if __name__  ==  "__main__":

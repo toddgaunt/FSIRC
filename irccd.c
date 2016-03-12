@@ -93,7 +93,8 @@ main(int argc, char *argv[])
                 break;
             case READ_MOD:
                 if (debug) printf("READING...\n");
-                if (read_msg(sockfd, recvline, debug) && reconn) {
+                read_msg(sockfd, recvline, debug);
+                if (reconn) {
                     if (!host_conn(server, port, &sockfd)) {
                         printf("connection failed.");
                         exit(1);
