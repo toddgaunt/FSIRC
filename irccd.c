@@ -3,8 +3,8 @@
  * it will auto-save messages for you
  * and can be called from the command line
  * to send messages to the specified channel.
+ * TODO add parsing and more shit.
  */
-//TODO Make it so that the program is more responsive to the control script.
 
 #include <stdio.h> 
 #include <stdlib.h>
@@ -15,16 +15,15 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-//#include <sys/stat.h> // used for creating FIFO pipe
 
-#define MAXLINE 4096 // For reading irc messages
 #define MAX_BUF 4096 // For reading fifo pipe
+#define MAX_LINE 1024 // For reading fifo pipe
 #define QUIT_MOD 'q' // quit mode
 #define READ_MOD 'r' // read mode
 #define WRIT_MOD 'w' // write mode
 #define DEBUG_MOD 'd' // debug mode
-#define CONN_MOD 'c' // connection mode
 #define JOIN_MOD 'j' // join mode
+#define PART_MOD 'p' // part mode
 
 /* function declarations */
 int host_conn(char *server, unsigned int port, int *sockfd);
@@ -38,51 +37,50 @@ main(int argc, char *argv[])
     /* Defining pipe and mode */
     char *ircd_fifo = "/tmp/ircd.fifo";
     char buf[MAX_BUF];
+    char actmode = READ_MOD;
 
-    /*TODO read these vars from a config file or something
-    * Use sprintf to format them */
-    char server[] = "162.213.39.42";
-    //char channel[] = "#Y35chan";
+    char ircserv[MAX_BUF] = "162.213.39.42";
+    char ircchan[MAX_BUF] = "#Y35chan";
     unsigned int port = 6667;
-   // char nick[] = "todd";
+    char nick[] = "iwakura_lain";
     int debug = 1;
-    int reconn = 0;
    
-    // Message buffers for sending and receiving
-    char recvline[MAXLINE+1], out[MAXLINE+1];
+    /* Message buffers for sending and recieving */
+    char recvline[MAX_BUF+1], out[MAX_BUF+1];
     int sockfd;
 
-    // Creates socket and connects to server
-    if (!host_conn(server, port, &sockfd)) {
+    /* Connects to server and returns failure code */
+    if (!host_conn(ircserv, port, &sockfd)) {
         printf("connection failed.");
         exit(1);
     }
 
-    send_msg(sockfd, "NICK iwakura_lain\r\n", debug);
-    send_msg(sockfd, "USER iwakura_lain 8 * :Iwakura\r\n", debug);
-    send_msg(sockfd, "JOIN #Y35chan\r\n", debug);
+    sprintf(out, "NICK %s\r\n", nick);
+    send_msg(sockfd, out, debug);
+    sprintf(out, "USER %s 8 * :nick\r\n", nick);
+    send_msg(sockfd, out, debug);
+    sprintf(out, "JOIN %s\r\n", ircchan);
+    send_msg(sockfd, out, debug);
 
-
-    char pos[MAX_BUF]; // The message sent alongside the actcode
-    char ircchan[MAX_BUF], *ircserv;
+    char pos[MAX_BUF]; // Contians the raw message sent with actcode
     int fd, i;
-    char actmode = READ_MOD; // mode the program is in.
     while(1) {
+        /* TODO sort all commands of fifo into a list that get complete before reading fifo again */
         fd = open(ircd_fifo, O_RDWR);
         if (fd >= 0) {
-            memset(&buf, 0, sizeof(buf)); //Clears buffer
+            memset(&buf, 0, sizeof(buf));
             read(fd, buf, MAX_BUF);
-            if (debug) printf("PIPE: %s\r\n", buf);
-            actmode = buf[0]; // code is first bit of pipe message, might make it separate with ':'
+            if (debug) printf("PIPE: %s\n", buf);
+            actmode = buf[0]; 
             for (i = 0; i<sizeof(buf)-1; i++) {
-                pos[i] = buf[i+1]; //copies over msg
+                pos[i] = buf[i+1]; // Stores the message for later formatting
             }
         } else {
             actmode = READ_MOD; // if the pipe is closed, go back to reading.
         }
         close(fd);
         remove(ircd_fifo);
-        if (debug) printf("MODE: %c\r\n", actmode);
+        if (debug) printf("MODE: %c\n", actmode);
 
         switch (actmode) {
             case QUIT_MOD:
@@ -92,40 +90,37 @@ main(int argc, char *argv[])
                 else debug = 1;
                 break;
             case READ_MOD:
+                /* Reads the next message coming from irc */
                 if (debug) printf("READING...\n");
                 read_msg(sockfd, recvline, debug);
-                if (reconn) {
-                    if (!host_conn(server, port, &sockfd)) {
-                        printf("connection failed.");
-                        exit(1);
-                    }
-                }
                 break;
             case JOIN_MOD:
-                // Save the value of the currently joined channel
+                /* Save the value of the currently joined channel */
                 for (i = 0; i < sizeof(pos); i++) {
                     ircchan[i] = pos[i];
                 }
                 sprintf(out, "JOIN %s\r\n", ircchan);
                 send_msg(sockfd, out, debug);
                 break;
+            case PART_MOD:
+                /* leaves a channel */
+                for (i = 0; i < sizeof(pos); i++) {
+                    ircchan[i] = pos[i];
+                }
+                sprintf(out, "PART %s\r\n", ircchan);
+                send_msg(sockfd, out, debug);
+                break;
             case WRIT_MOD:
-                // Add a check to see if ircchan is an actual channel
+                /* Add a check to see if ircchan is an actual channel */
                 sprintf(out, "PRIVMSG %s :%s\r\n", ircchan, pos);
                 printf(ircchan);
                 send_msg(sockfd, out, debug);
-                break;
-            case CONN_MOD:
-                if (reconn == 0) reconn = 1;
-                else reconn = 0;
-                break;
-            case 8:
                 break;
             default:
                 actmode = READ_MOD;
         }
     }
-    exit(1); // if while loop is broken, exit with error.
+    exit(1);
 }
 
 int 
@@ -133,11 +128,11 @@ host_conn(char *server, unsigned int port, int *sockfd)
 /* constructs socket at sockfd and then connects to server */
 {
     struct sockaddr_in servaddr; 
-    memset(&servaddr, 0, sizeof(servaddr)); //Zeros out memory location the new struct uses.
+    memset(&servaddr, 0, sizeof(servaddr));
     servaddr.sin_family = AF_INET;
     servaddr.sin_port = htons(port);
     
-    //modifies the sockfd for the rest of main() to use
+    /* modifies the sockfd for the rest of main() to use */
     *sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (*sockfd < 0) {
         printf("socked creation failed.");
@@ -149,7 +144,7 @@ host_conn(char *server, unsigned int port, int *sockfd)
         return 0;
     }
 
-    // points sockaddr pointer to servaddr because connect takes sockaddr structs
+    /* points sockaddr pointer to servaddr because connect takes sockaddr structs */
     if (connect(*sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
         return 0;
     }
@@ -161,10 +156,10 @@ int
 send_msg(int sockfd, char *out, int debug)
 /*sends a message to the irc channel*/
 {
-    if (debug) {
-        printf("OUT: %s", out);
-    }
-    return send(sockfd, out, strlen(out), 0);
+    int n = send(sockfd, out, strlen(out), 0);
+    if (n > 0 && debug) printf("OUT: %s", out);
+
+    return n;
 }
 
 int
@@ -172,19 +167,14 @@ read_msg(int sockfd, char *recvline, int debug)
 /*reads next message from irc, and replies to any pings with send_msg*/
 {
     recvline[0] = 0;
-    int n = read(sockfd, recvline, MAXLINE);
-
-    if (n > 0 && debug) {
-        printf("IN: %s", recvline);
-    }
+    int n = read(sockfd, recvline, MAX_BUF);
+    if (n > 0 && debug) printf("IN: %s", recvline);
 
     // If message is PING, reply PONG
-    char *pos, out[MAXLINE+1];
+    char *pos, out[MAX_BUF+1];
     if (n > 0) {
         recvline[n] = 0;
-        // Sees if the server sent a ping message
         if (strstr(recvline, "PING") != NULL) {
-            //out[0] = 0;
             pos = strstr(recvline, " ")+1;
             sprintf(out, "PONG %s\r\n", pos);
             send_msg(sockfd, out, debug);

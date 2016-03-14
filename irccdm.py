@@ -22,6 +22,10 @@ def main():
                         type = str, default = conf['channel'],
                         help = 'Channel to connect to.')
 
+    parser.add_argument('-p', '--part', metavar = 'channel',
+                        type = str,
+                        help = 'Channel to part with.')
+
     parser.add_argument('-P', '--port', metavar = 'port',
                         type = int, default = conf['port'],
                         help = 'Which port to connect with')
@@ -50,17 +54,25 @@ def main():
 
     os.mkfifo(fifo_file)
     fd = open(fifo_file, 'wb', 0)
-    if args.read:
-        msg = b'r' + str.encode(args.read) # byte r = 'read' mode
-    elif args.write:
+    if args.write:
         msg = b'w' + str.encode(args.write) # byte w = 'write' mode
         print(msg)
-    elif args.join:
-        msg = b'j' + str.encode(args.join) # byte # = 'chan' mode
+        fd.write(msg)
+    if args.join:
+        msg = b'j' + str.encode(args.join) # byte j = 'join' mode
+        print(msg)
+        fd.write(msg)
+    if args.part:
+        msg = b'p' + str.encode(args.part) # byte p = 'part' mode
+        print(msg)
+        fd.write(msg)
+    if args.read:
+        msg = b'r'
+        print(msg)
+        fd.write(msg)
     else:
         pass
         #msg = b'e' # e = 'error' mode
-    fd.write(msg)
     fd.close()
 
 def read_config(file, name):
@@ -69,15 +81,6 @@ def read_config(file, name):
         data = json.loads(fd.read())
         conf = data[name]
         return conf
-
-def read_msg():
-    pass
-
-def write_msg():
-    pass
-
-def open_pipe():
-    pass
 
 if __name__  ==  "__main__":
     main()
