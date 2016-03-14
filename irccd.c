@@ -24,6 +24,7 @@
 #define WRIT_MOD 'w' // write mode
 #define DEBUG_MOD 'd' // debug mode
 #define CONN_MOD 'c' // connection mode
+#define JOIN_MOD 'j' // join mode
 
 /* function declarations */
 int host_conn(char *server, unsigned int port, int *sockfd);
@@ -57,21 +58,22 @@ main(int argc, char *argv[])
         exit(1);
     }
 
-    /*TODO substitute hardcoded strings for variables*/
     send_msg(sockfd, "NICK iwakura_lain\r\n", debug);
     send_msg(sockfd, "USER iwakura_lain 8 * :Iwakura\r\n", debug);
     send_msg(sockfd, "JOIN #Y35chan\r\n", debug);
 
-    char pos[MAX_BUF];
+
+    char pos[MAX_BUF]; // The message sent alongside the actcode
+    char ircchan[MAX_BUF], *ircserv;
     int fd, i;
-    int actmode = READ_MOD; // mode the program is in.
+    char actmode = READ_MOD; // mode the program is in.
     while(1) {
         fd = open(ircd_fifo, O_RDWR);
         if (fd >= 0) {
             memset(&buf, 0, sizeof(buf)); //Clears buffer
             read(fd, buf, MAX_BUF);
             if (debug) printf("PIPE: %s\r\n", buf);
-            actmode = buf[0]; // code is first bit of pipe message, might make it first 4 later
+            actmode = buf[0]; // code is first bit of pipe message, might make it separate with ':'
             for (i = 0; i<sizeof(buf)-1; i++) {
                 pos[i] = buf[i+1]; //copies over msg
             }
@@ -89,8 +91,6 @@ main(int argc, char *argv[])
                 if (debug != 0) debug = 0;
                 else debug = 1;
                 break;
-            case 1:
-                break;
             case READ_MOD:
                 if (debug) printf("READING...\n");
                 read_msg(sockfd, recvline, debug);
@@ -101,8 +101,18 @@ main(int argc, char *argv[])
                     }
                 }
                 break;
+            case JOIN_MOD:
+                // Save the value of the currently joined channel
+                for (i = 0; i < sizeof(pos); i++) {
+                    ircchan[i] = pos[i];
+                }
+                sprintf(out, "JOIN %s\r\n", ircchan);
+                send_msg(sockfd, out, debug);
+                break;
             case WRIT_MOD:
-                sprintf(out, "PRIVMSG #Y35chan :%s\r\n", pos);
+                // Add a check to see if ircchan is an actual channel
+                sprintf(out, "PRIVMSG %s :%s\r\n", ircchan, pos);
+                printf(ircchan);
                 send_msg(sockfd, out, debug);
                 break;
             case CONN_MOD:

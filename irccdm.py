@@ -48,22 +48,20 @@ def main():
 
     args = parser.parse_args()
 
-    if args.write:
-        os.mkfifo(fifo_file)
-        fd = open(fifo_file, 'wb', 0)
-        msg = str.encode(args.write)
-        print (msg)
-        fd.write(b'w' + msg)
-        fd.close()
-    elif args.read:
-        pass
-    elif args.auto:
-        pass
+    os.mkfifo(fifo_file)
+    fd = open(fifo_file, 'wb', 0)
+    if args.read:
+        msg = b'r' + str.encode(args.read) # byte r = 'read' mode
+    elif args.write:
+        msg = b'w' + str.encode(args.write) # byte w = 'write' mode
+        print(msg)
+    elif args.join:
+        msg = b'j' + str.encode(args.join) # byte # = 'chan' mode
     else:
         pass
-
-    #else:
-     #   print(fifo_file + ' not found. ircd may not be running.')
+        #msg = b'e' # e = 'error' mode
+    fd.write(msg)
+    fd.close()
 
 def read_config(file, name):
     """Reads json configuration file"""
