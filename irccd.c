@@ -71,12 +71,12 @@ main(int argc, char *argv[])
             memset(&buf, 0, sizeof(buf));
             read(fd, buf, MAX_BUF);
             if (debug) printf("PIPE: %s\n", buf);
-            actmode = buf[0]; 
-            for (i = 0; i<sizeof(buf)-1; i++) {
+            actmode = buf[0];
+            for (i = 0; i < sizeof(buf)-1; i++) {
                 pos[i] = buf[i+1]; // Stores the message for later formatting
             }
         } else {
-            actmode = READ_MOD; // if the pipe is closed, go back to reading.
+            actmode = READ_MOD;
         }
         close(fd);
         remove(ircd_fifo);
@@ -96,6 +96,7 @@ main(int argc, char *argv[])
                 break;
             case JOIN_MOD:
                 /* Save the value of the currently joined channel */
+                if (debug) printf("JOINING...\n");
                 for (i = 0; i < sizeof(pos); i++) {
                     ircchan[i] = pos[i];
                 }
@@ -112,6 +113,7 @@ main(int argc, char *argv[])
                 break;
             case WRIT_MOD:
                 /* Add a check to see if ircchan is an actual channel */
+                if (debug) printf("WRITING...\n");
                 sprintf(out, "PRIVMSG %s :%s\r\n", ircchan, pos);
                 printf(ircchan);
                 send_msg(sockfd, out, debug);

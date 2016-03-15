@@ -55,19 +55,19 @@ def main():
     os.mkfifo(fifo_file)
     fd = open(fifo_file, 'wb', 0)
     if args.write:
-        msg = b'w' + str.encode(args.write) # byte w = 'write' mode
+        msg = b'w' + str.encode(args.write) + b'\n' # byte w = 'write' mode
         print(msg)
         fd.write(msg)
-    if args.join:
-        msg = b'j' + str.encode(args.join) # byte j = 'join' mode
+    elif args.part:
+        msg = b'p' + str.encode(args.part) + b'\n' # byte p = 'part' mode
         print(msg)
         fd.write(msg)
-    if args.part:
-        msg = b'p' + str.encode(args.part) # byte p = 'part' mode
+    elif args.join:
+        msg = b'j' + str.encode(args.join) + b'\n' # byte j = 'join' mode
         print(msg)
         fd.write(msg)
-    if args.read:
-        msg = b'r'
+    elif args.read:
+        msg = b'r\n'
         print(msg)
         fd.write(msg)
     else:
