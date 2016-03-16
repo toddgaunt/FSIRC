@@ -14,12 +14,13 @@
 #include <arpa/inet.h> 
 #include <fcntl.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/socket.h>
+#include <signal.h>
 
 #define MAX_BUF 4096 // For reading fifo pipe
 #define MAX_LINE 1024 // For reading fifo pipe
 #define QUIT_MOD 'q' // quit mode
-#define READ_MOD 'r' // read mode
 #define WRIT_MOD 'w' // write mode
 #define DEBUG_MOD 'd' // debug mode
 #define JOIN_MOD 'j' // join mode
@@ -30,14 +31,15 @@ int host_conn(char *server, unsigned int port, int *sockfd);
 int chan_conn(char *channel);
 int send_msg(int sockfd, char *out, int debug);
 int read_msg(int sockfd, char *recvline, int debug);
+int kill_children(int pid);
 
 int 
 main(int argc, char *argv[]) 
 {
     /* Defining pipe and mode */
-    char *ircd_fifo = "/tmp/ircd.fifo";
+    char *myfifo = "/tmp/ircd.fifo";
     char buf[MAX_BUF];
-    char actmode = READ_MOD;
+    char actmode = 0;
 
     char ircserv[MAX_BUF] = "162.213.39.42";
     char ircchan[MAX_BUF] = "#Y35chan";
@@ -62,66 +64,71 @@ main(int argc, char *argv[])
     sprintf(out, "JOIN %s\r\n", ircchan);
     send_msg(sockfd, out, debug);
 
-    char pos[MAX_BUF]; // Contians the raw message sent with actcode
-    int fd, i;
-    while(1) {
-        /* TODO sort all commands of fifo into a list that get complete before reading fifo again */
-        fd = open(ircd_fifo, O_RDWR);
-        if (fd >= 0) {
+    int pid = fork(); //This process constantly reads irc chat
+    if (pid == 0) {
+        while(1) {
+            if (debug) printf("READING...\n");
+            if (read_msg(sockfd, recvline, debug) <= 0) {
+                printf("READ CONNECTION FAILED.\n");
+                exit(1); // Exits if read fails aka disconnect
+            }
+        }
+    } else {
+        mkfifo(myfifo, 0666);
+        char pos[MAX_BUF]; // Contians the raw message sent with actcode
+        int fd, i;
+        while(1) {
+            fd = open(myfifo, O_RDONLY); 
             memset(&buf, 0, sizeof(buf));
+            printf("FIFO...\n");
             read(fd, buf, MAX_BUF);
             if (debug) printf("PIPE: %s\n", buf);
             actmode = buf[0];
+            printf("ACTMODE: %c\n", actmode);
             for (i = 0; i < sizeof(buf)-1; i++) {
                 pos[i] = buf[i+1]; // Stores the message for later formatting
             }
-        } else {
-            actmode = READ_MOD;
-        }
-        close(fd);
-        remove(ircd_fifo);
-        if (debug) printf("MODE: %c\n", actmode);
 
-        switch (actmode) {
-            case QUIT_MOD:
-                exit(0);
-            case DEBUG_MOD:
-                if (debug != 0) debug = 0;
-                else debug = 1;
-                break;
-            case READ_MOD:
-                /* Reads the next message coming from irc */
-                if (debug) printf("READING...\n");
-                read_msg(sockfd, recvline, debug);
-                break;
-            case JOIN_MOD:
-                /* Save the value of the currently joined channel */
-                if (debug) printf("JOINING...\n");
-                for (i = 0; i < sizeof(pos); i++) {
-                    ircchan[i] = pos[i];
-                }
-                sprintf(out, "JOIN %s\r\n", ircchan);
-                send_msg(sockfd, out, debug);
-                break;
-            case PART_MOD:
-                /* leaves a channel */
-                for (i = 0; i < sizeof(pos); i++) {
-                    ircchan[i] = pos[i];
-                }
-                sprintf(out, "PART %s\r\n", ircchan);
-                send_msg(sockfd, out, debug);
-                break;
-            case WRIT_MOD:
-                /* Add a check to see if ircchan is an actual channel */
-                if (debug) printf("WRITING...\n");
-                sprintf(out, "PRIVMSG %s :%s\r\n", ircchan, pos);
-                printf(ircchan);
-                send_msg(sockfd, out, debug);
-                break;
-            default:
-                actmode = READ_MOD;
+            if (debug) printf("MODE: %c\n", actmode);
+            switch (actmode) {
+                case QUIT_MOD:
+                    kill_children(pid);
+                    exit(0);
+                case DEBUG_MOD:
+                    if (debug != 0) debug = 0;
+                    else debug = 1;
+                    break;
+                case JOIN_MOD:
+                    /* Save the value of the currently joined channel */
+                    if (debug) printf("JOINING...\n");
+                    for (i = 0; i < sizeof(pos); i++) {
+                        ircchan[i] = pos[i];
+                    }
+                    sprintf(out, "JOIN %s\r\n", ircchan);
+                    send_msg(sockfd, out, debug);
+                    break;
+                case PART_MOD:
+                    /* leaves a channel */
+                    for (i = 0; i < sizeof(pos); i++) {
+                        ircchan[i] = pos[i];
+                    }
+                    sprintf(out, "PART %s\r\n", ircchan);
+                    send_msg(sockfd, out, debug);
+                    break;
+                case WRIT_MOD:
+                    /* Add a check to see if ircchan is an actual channel */
+                    if (debug) printf("WRITING...\n");
+                    sprintf(out, "PRIVMSG %s :%s\r\n", ircchan, pos);
+                    send_msg(sockfd, out, debug);
+                    break;
+                default:
+                    printf("NO COMMAND.");
+                    sleep(1);
+            }
+            close(fd);
         }
     }
+    printf("Fifo creation failed.\n");
     exit(1);
 }
 
@@ -152,6 +159,13 @@ host_conn(char *server, unsigned int port, int *sockfd)
     }
 
     return 1;
+}
+
+int
+kill_children(int pid)
+/*cleans up child processes*/
+{
+    return kill(pid, SIGTERM);
 }
 
 int 

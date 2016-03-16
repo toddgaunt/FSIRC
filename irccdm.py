@@ -15,11 +15,11 @@ def main():
     parser = argparse.ArgumentParser(description = "Simple python based irc-bot daemon")
 
     parser.add_argument('-c', '--connect', metavar = 'host',
-                        type = str, default = conf['host'],
+                        type = str,
                         help = 'Host to connect to.')
 
     parser.add_argument('-j', '--join', metavar = 'channel',
-                        type = str, default = conf['channel'],
+                        type = str,
                         help = 'Channel to connect to.')
 
     parser.add_argument('-p', '--part', metavar = 'channel',
@@ -27,23 +27,27 @@ def main():
                         help = 'Channel to part with.')
 
     parser.add_argument('-P', '--port', metavar = 'port',
-                        type = int, default = conf['port'],
+                        type = int,
                         help = 'Which port to connect with')
 
     parser.add_argument('-n', '--nick', metavar = 'name',
-                        type = str, default = conf['nick'],
+                        type = str,
                         help = 'Nick to connect with.')
 
     parser.add_argument('-w', '--write',
-                        type = str,
+                        nargs = '+', type = str,
                         help = 'Write a line of text to irc.')
+
+    parser.add_argument('-q', '--quit',
+                        action = 'store_true', default = False,
+                        help = 'Make the server quit.')
 
     parser.add_argument('-r', '--read',
                         action = 'store_true', default = False,
                         help = 'Read the next line of text on irc.')
 
     parser.add_argument('-R', '--Realname', metavar = 'realname',
-                        type = str, default = conf['realname'],
+                        type = str,
                         help = 'Realname to connect with.')
 
     parser.add_argument('-v', '--verbose',
@@ -52,24 +56,31 @@ def main():
 
     args = parser.parse_args()
 
-    os.mkfifo(fifo_file)
-    fd = open(fifo_file, 'wb', 0)
+    try:
+        fd = open(fifo_file, 'wb', 0)
+    except OSError:
+        print ("server not up.")
     if args.write:
-        msg = b'w' + str.encode(args.write) + b'\n' # byte w = 'write' mode
-        print(msg)
+        for i in range(len(args.write)):
+            msg = b'w' + str.encode(args.write[i]) # byte w = 'write' mode
+            fd.write(msg)
+            print(msg)
+    if args.part:
+        msg = b'p' + str.encode(args.part) # byte p = 'part' mode
         fd.write(msg)
-    elif args.part:
-        msg = b'p' + str.encode(args.part) + b'\n' # byte p = 'part' mode
         print(msg)
+    if args.join:
+        msg = b'j' + str.encode(args.join) # byte j = 'join' mode
         fd.write(msg)
-    elif args.join:
-        msg = b'j' + str.encode(args.join) + b'\n' # byte j = 'join' mode
         print(msg)
+    if args.read:
+        msg = b'r'
         fd.write(msg)
-    elif args.read:
-        msg = b'r\n'
         print(msg)
+    if args.quit:
+        msg = b'q'
         fd.write(msg)
+        print(msg)
     else:
         pass
         #msg = b'e' # e = 'error' mode
