@@ -1,9 +1,13 @@
 /*
- * ircd is a simple irc-bot daemon
+ * Name: irccd
+ * Author: Todd Gaunt
+ * Last updated: 2016-03-16
+ * License: MIT
+ * Description:
+ * irccd is a simple irc-bot daemon
  * it will auto-save messages for you
  * and can be called from the command line
  * to send messages to the specified channel.
- * TODO add parsing and more shit.
  */
 
 #include <stdio.h> 
@@ -18,37 +22,25 @@
 #include <sys/socket.h>
 #include <signal.h>
 
-#define MAX_BUF 4096 // For reading fifo pipe
-#define MAX_LINE 1024 // For reading fifo pipe
-#define QUIT_MOD 'q' // quit mode
-#define WRIT_MOD 'w' // write mode
-#define DEBUG_MOD 'd' // debug mode
-#define JOIN_MOD 'j' // join mode
-#define PART_MOD 'p' // part mode
-
-/* function declarations */
-int host_conn(char *server, unsigned int port, int *sockfd);
-int chan_conn(char *channel);
-int send_msg(int sockfd, char *out, int debug);
-int read_msg(int sockfd, char *recvline, int debug);
-int kill_children(int pid);
+#include "irccd.h"
 
 int 
 main(int argc, char *argv[]) 
 {
-    /* Defining pipe and mode */
-    char *myfifo = "/tmp/ircd.fifo";
-    char buf[MAX_BUF];
+    /* Defining fifo and initial mode */
+    char *myfifo = "/tmp/irccd.fifo";
     char actmode = 0;
 
+    /* Connection info */
     char ircserv[MAX_BUF] = "162.213.39.42";
-    char ircchan[MAX_BUF] = "#Y35chan";
+    char ircchan[MAX_BUF];
     unsigned int port = 6667;
     char nick[] = "iwakura_lain";
     int debug = 1;
    
     /* Message buffers for sending and recieving */
-    char recvline[MAX_BUF+1], out[MAX_BUF+1];
+    char recvline[MAX_BUF+1], buf[MAX_BUF], out[MAX_BUF+1];
+    /* socket */
     int sockfd;
 
     /* Connects to server and returns failure code */
@@ -61,26 +53,25 @@ main(int argc, char *argv[])
     send_msg(sockfd, out, debug);
     sprintf(out, "USER %s 8 * :nick\r\n", nick);
     send_msg(sockfd, out, debug);
-    sprintf(out, "JOIN %s\r\n", ircchan);
-    send_msg(sockfd, out, debug);
 
-    int pid = fork(); //This process constantly reads irc chat
+    /* Forks to constantly read from irc server */
+    int pid = fork(); 
     if (pid == 0) {
         while(1) {
+            memset(&recvline, 0, sizeof(recvline));
             if (debug) printf("READING...\n");
             if (read_msg(sockfd, recvline, debug) <= 0) {
-                printf("READ CONNECTION FAILED.\n");
+                printf("CONNECTION FAILED.\n");
                 exit(1); // Exits if read fails aka disconnect
             }
         }
     } else {
         mkfifo(myfifo, 0666);
-        char pos[MAX_BUF]; // Contians the raw message sent with actcode
+        char pos[MAX_BUF]; // Holds message without actcode
         int fd, i;
         while(1) {
             fd = open(myfifo, O_RDONLY); 
             memset(&buf, 0, sizeof(buf));
-            printf("FIFO...\n");
             read(fd, buf, MAX_BUF);
             if (debug) printf("PIPE: %s\n", buf);
             actmode = buf[0];
@@ -92,8 +83,7 @@ main(int argc, char *argv[])
             if (debug) printf("MODE: %c\n", actmode);
             switch (actmode) {
                 case QUIT_MOD:
-                    kill_children(pid);
-                    exit(0);
+                    kill_children(pid, 0);
                 case DEBUG_MOD:
                     if (debug != 0) debug = 0;
                     else debug = 1;
@@ -109,6 +99,7 @@ main(int argc, char *argv[])
                     break;
                 case PART_MOD:
                     /* leaves a channel */
+                    if (debug) printf("PARTING...\n");
                     for (i = 0; i < sizeof(pos); i++) {
                         ircchan[i] = pos[i];
                     }
@@ -121,15 +112,17 @@ main(int argc, char *argv[])
                     sprintf(out, "PRIVMSG %s :%s\r\n", ircchan, pos);
                     send_msg(sockfd, out, debug);
                     break;
+                case NICK_MOD:
+                    break;
                 default:
-                    printf("NO COMMAND.");
+                    printf("NO COMMAND...");
                     sleep(1);
             }
             close(fd);
         }
     }
     printf("Fifo creation failed.\n");
-    exit(1);
+    kill_children(pid, 1);
 }
 
 int 
@@ -161,13 +154,6 @@ host_conn(char *server, unsigned int port, int *sockfd)
     return 1;
 }
 
-int
-kill_children(int pid)
-/*cleans up child processes*/
-{
-    return kill(pid, SIGTERM);
-}
-
 int 
 send_msg(int sockfd, char *out, int debug)
 /*sends a message to the irc channel*/
@@ -197,4 +183,12 @@ read_msg(int sockfd, char *recvline, int debug)
         }
     }
     return n;
+}
+
+void
+kill_children(int pid, int ecode)
+/*cleans up child processes*/
+{
+    kill(pid, SIGTERM);
+    exit(ecode);
 }

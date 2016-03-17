@@ -10,7 +10,7 @@ import time
 
 def main():
     conf = read_config('config.json', 'default')
-    fifo_file = "/tmp/ircd.fifo"
+    fifo_file = "/tmp/irccd.fifo"
 
     parser = argparse.ArgumentParser(description = "Simple python based irc-bot daemon")
 
