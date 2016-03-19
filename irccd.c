@@ -1,7 +1,7 @@
 /*
  * Name: irccd
  * Author: Todd Gaunt
- * Last updated: 2016-03-16
+ * Last updated: 2016-03-19
  * License: MIT
  * Description:
  * irccd is a simple irc-bot daemon
@@ -24,6 +24,13 @@
 
 #include "irccd.h"
 
+/* linked list for all Channels */
+typedef struct Channel Channel;
+struct Channel {
+    char *name;
+    Channel *next;
+};
+
 int 
 main(int argc, char *argv[]) 
 {
@@ -32,23 +39,25 @@ main(int argc, char *argv[])
     char actmode = 0;
 
     /* Connection info */
-    char ircserv[MAX_BUF] = "162.213.39.42";
-    char ircchan[MAX_BUF];
+    char host_serv[MAX_BUF];
+    char channel[MAX_BUF];
     unsigned int port = 6667;
     char nick[] = "iwakura_lain";
     int debug = 1;
    
     /* Message buffers for sending and recieving */
     char recvline[MAX_BUF+1], buf[MAX_BUF], out[MAX_BUF+1];
+
     /* socket */
     int sockfd;
 
     /* Connects to server and returns failure code */
-    if (!host_conn(ircserv, port, &sockfd)) {
+    if (!host_conn(host_serv, port, &sockfd)) {
         printf("connection failed.");
         exit(1);
     }
 
+    /* Initial connection and nickname */
     sprintf(out, "NICK %s\r\n", nick);
     send_msg(sockfd, out, debug);
     sprintf(out, "USER %s 8 * :nick\r\n", nick);
@@ -58,12 +67,12 @@ main(int argc, char *argv[])
     int pid = fork(); 
     if (pid == 0) {
         while(1) {
-            memset(&recvline, 0, sizeof(recvline));
             if (debug) printf("READING...\n");
             if (read_msg(sockfd, recvline, debug) <= 0) {
                 printf("CONNECTION FAILED.\n");
                 exit(1); // Exits if read fails aka disconnect
             }
+            printf("RECEIVE WORKS: %s", recvline);
         }
     } else {
         mkfifo(myfifo, 0666);
@@ -73,9 +82,8 @@ main(int argc, char *argv[])
             fd = open(myfifo, O_RDONLY); 
             memset(&buf, 0, sizeof(buf));
             read(fd, buf, MAX_BUF);
-            if (debug) printf("PIPE: %s\n", buf);
             actmode = buf[0];
-            printf("ACTMODE: %c\n", actmode);
+            if (debug) printf("ACTMODE: %c\n", actmode);
             for (i = 0; i < sizeof(buf)-1; i++) {
                 pos[i] = buf[i+1]; // Stores the message for later formatting
             }
@@ -92,24 +100,24 @@ main(int argc, char *argv[])
                     /* Save the value of the currently joined channel */
                     if (debug) printf("JOINING...\n");
                     for (i = 0; i < sizeof(pos); i++) {
-                        ircchan[i] = pos[i];
+                        channel[i] = pos[i];
                     }
-                    sprintf(out, "JOIN %s\r\n", ircchan);
+                    sprintf(out, "JOIN %s\r\n", channel);
                     send_msg(sockfd, out, debug);
                     break;
                 case PART_MOD:
                     /* leaves a channel */
                     if (debug) printf("PARTING...\n");
                     for (i = 0; i < sizeof(pos); i++) {
-                        ircchan[i] = pos[i];
+                        channel[i] = pos[i];
                     }
-                    sprintf(out, "PART %s\r\n", ircchan);
+                    sprintf(out, "PART %s\r\n", channel);
                     send_msg(sockfd, out, debug);
                     break;
                 case WRIT_MOD:
-                    /* Add a check to see if ircchan is an actual channel */
+                    /* Add a check to see if channel is an actual channel */
                     if (debug) printf("WRITING...\n");
-                    sprintf(out, "PRIVMSG %s :%s\r\n", ircchan, pos);
+                    sprintf(out, "PRIVMSG %s :%s\r\n", channel, pos);
                     send_msg(sockfd, out, debug);
                     break;
                 case NICK_MOD:
@@ -154,6 +162,18 @@ host_conn(char *server, unsigned int port, int *sockfd)
     return 1;
 }
 
+int add_chan()
+{
+}
+
+int rm_chan()
+{
+}
+
+int set_nick()
+{
+}
+
 int 
 send_msg(int sockfd, char *out, int debug)
 /*sends a message to the irc channel*/
@@ -168,7 +188,7 @@ int
 read_msg(int sockfd, char *recvline, int debug)
 /*reads next message from irc, and replies to any pings with send_msg*/
 {
-    recvline[0] = 0;
+    memset(&recvline, 0, sizeof(recvline)); //clears previous messsage
     int n = read(sockfd, recvline, MAX_BUF);
     if (n > 0 && debug) printf("IN: %s", recvline);
 

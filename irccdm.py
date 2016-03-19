@@ -34,7 +34,7 @@ def main():
                         type = str,
                         help = 'Nick to connect with.')
 
-    parser.add_argument('-w', '--write',
+    parser.add_argument('-m', '--message',
                         nargs = '+', type = str,
                         help = 'Write a line of text to irc.')
 
