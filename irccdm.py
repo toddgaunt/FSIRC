@@ -42,10 +42,6 @@ def main():
                         action = 'store_true', default = False,
                         help = 'Make the server quit.')
 
-    parser.add_argument('-r', '--read',
-                        action = 'store_true', default = False,
-                        help = 'Read the next line of text on irc.')
-
     parser.add_argument('-R', '--Realname', metavar = 'realname',
                         type = str,
                         help = 'Realname to connect with.')
@@ -60,30 +56,24 @@ def main():
         fd = open(fifo_file, 'wb', 0)
     except OSError:
         print ("server not up.")
-    if args.write:
-        for i in range(len(args.write)):
-            msg = b'w' + str.encode(args.write[i]) # byte w = 'write' mode
+    for i in args:
+        if i == args.write:
+            for i in range(len(args.write)):
+                msg = b'w' + str.encode(args.write[i]) # byte w = 'write' mode
+                fd.write(msg)
+                print(msg)
+        if i == args.part:
+            msg = b'p' + str.encode(args.part) # byte p = 'part' mode
             fd.write(msg)
             print(msg)
-    if args.part:
-        msg = b'p' + str.encode(args.part) # byte p = 'part' mode
-        fd.write(msg)
-        print(msg)
-    if args.join:
-        msg = b'j' + str.encode(args.join) # byte j = 'join' mode
-        fd.write(msg)
-        print(msg)
-    if args.read:
-        msg = b'r'
-        fd.write(msg)
-        print(msg)
-    if args.quit:
-        msg = b'q'
-        fd.write(msg)
-        print(msg)
-    else:
-        pass
-        #msg = b'e' # e = 'error' mode
+        if i == args.join:
+            msg = b'j' + str.encode(args.join) # byte j = 'join' mode
+            fd.write(msg)
+            print(msg)
+        if i == args.quit:
+            msg = b'q'
+            fd.write(msg)
+            print(msg)
     fd.close()
 
 def read_config(file, name):

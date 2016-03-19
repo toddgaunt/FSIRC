@@ -162,8 +162,11 @@ host_conn(char *server, unsigned int port, int *sockfd)
     return 1;
 }
 
-int add_chan()
+int add_chan(char *chan_in)
 {
+    struct Channel newchan;
+    newchan.name = chan_in;
+
 }
 
 int rm_chan()
