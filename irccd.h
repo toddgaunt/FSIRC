@@ -4,24 +4,34 @@
 /* Maximum length of some strings */
 #define MAX_BUF 4096
 #define MAX_LINE 1024
+#define CHAN_LEN 64
 /* Command definitions, might change to pure ints */
 #define QUIT_MOD 'q' // quit mode
-#define WRIT_MOD 'w' // write mode
-#define DEBUG_MOD 'd' // debug mode
-#define JOIN_MOD 'j' // join mode
-#define PART_MOD 'p' // part mode
+#define WRIT_MOD 'w' // write to channel
+#define JOIN_MOD 'j' // join channel 
+#define PART_MOD 'p' // part from channel
+#define LIST_MOD 'L' // list channels
 #define NICK_MOD 'n' // nickname mode
 
+#define DEBUG 1 // toggles debug
+
+/* linked list for all Channels */
+typedef struct Channel Channel;
+struct Channel {
+    char *name;
+    struct Channel *next;
+};
 
 /* The backbone of most other functions here */
-int send_msg(int sockfd, char *out, int debug);
-int read_msg(int sockfd, char *recvline, int debug);
+int send_msg(int sockfd, char *out);
+int read_msg(int sockfd, char *recvline);
 
 /* The commands sent to this irc daemon */
 int host_conn(char *server, unsigned int port, int *sockfd);
 //TODO
-int add_chan();
+int add_chan(Channel *head, char *name);
 int rm_chan();
+int list_chan(Channel *head);
 int set_nick();
 
 /* cleans up all forked processes */

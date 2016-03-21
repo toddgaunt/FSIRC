@@ -34,13 +34,17 @@ def main():
                         type = str,
                         help = 'Nick to connect with.')
 
-    parser.add_argument('-m', '--message',
+    parser.add_argument('-w', '--write',
                         nargs = '+', type = str,
                         help = 'Write a line of text to irc.')
 
     parser.add_argument('-q', '--quit',
                         action = 'store_true', default = False,
                         help = 'Make the server quit.')
+
+    parser.add_argument('-L', '--listchan',
+                        action = 'store_true', default = False,
+                        help = 'List all channels.')
 
     parser.add_argument('-R', '--Realname', metavar = 'realname',
                         type = str,
@@ -56,24 +60,27 @@ def main():
         fd = open(fifo_file, 'wb', 0)
     except OSError:
         print ("server not up.")
-    for i in args:
-        if i == args.write:
-            for i in range(len(args.write)):
-                msg = b'w' + str.encode(args.write[i]) # byte w = 'write' mode
-                fd.write(msg)
-                print(msg)
-        if i == args.part:
-            msg = b'p' + str.encode(args.part) # byte p = 'part' mode
+    if args.write:
+        for i in range(len(args.write)):
+            msg = b'w' + str.encode(args.write[i]) # byte w = 'write' mode
             fd.write(msg)
             print(msg)
-        if i == args.join:
-            msg = b'j' + str.encode(args.join) # byte j = 'join' mode
-            fd.write(msg)
-            print(msg)
-        if i == args.quit:
-            msg = b'q'
-            fd.write(msg)
-            print(msg)
+    if args.listchan:
+        msg = b'L'
+        fd.write(msg)
+        print(msg)
+    if args.part:
+        msg = b'p' + str.encode(args.part) # byte p = 'part' mode
+        fd.write(msg)
+        print(msg)
+    if args.join:
+        msg = b'j' + str.encode(args.join) # byte j = 'join' mode
+        fd.write(msg)
+        print(msg)
+    if args.quit:
+        msg = b'q'
+        fd.write(msg)
+        print(msg)
     fd.close()
 
 def read_config(file, name):

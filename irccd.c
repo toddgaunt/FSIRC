@@ -21,15 +21,10 @@
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <signal.h>
+#include <malloc.h>
 
 #include "irccd.h"
 
-/* linked list for all Channels */
-typedef struct Channel Channel;
-struct Channel {
-    char *name;
-    Channel *next;
-};
 
 int 
 main(int argc, char *argv[]) 
@@ -39,19 +34,20 @@ main(int argc, char *argv[])
     char actmode = 0;
 
     /* Connection info */
-    char host_serv[MAX_BUF];
-    char channel[MAX_BUF];
+    char host_serv[MAX_BUF] = "162.213.39.42";
+    char chan_name[CHAN_LEN];
     unsigned int port = 6667;
     char nick[] = "iwakura_lain";
-    int debug = 1;
-   
+    int sockfd; //socket
+    
     /* Message buffers for sending and recieving */
     char recvline[MAX_BUF+1], buf[MAX_BUF], out[MAX_BUF+1];
+    
+    /* For channel linked list */
+    Channel *chan_head=NULL;
+    //Channel *chan_cur // Will be used to store current node later TODO
+    chan_head = (Channel*)malloc(sizeof(Channel));
 
-    /* socket */
-    int sockfd;
-
-    /* Connects to server and returns failure code */
     if (!host_conn(host_serv, port, &sockfd)) {
         printf("connection failed.");
         exit(1);
@@ -59,20 +55,20 @@ main(int argc, char *argv[])
 
     /* Initial connection and nickname */
     sprintf(out, "NICK %s\r\n", nick);
-    send_msg(sockfd, out, debug);
+    send_msg(sockfd, out);
     sprintf(out, "USER %s 8 * :nick\r\n", nick);
-    send_msg(sockfd, out, debug);
+    send_msg(sockfd, out);
 
     /* Forks to constantly read from irc server */
     int pid = fork(); 
     if (pid == 0) {
         while(1) {
-            if (debug) printf("READING...\n");
-            if (read_msg(sockfd, recvline, debug) <= 0) {
-                printf("CONNECTION FAILED.\n");
+            if (DEBUG) printf("READING...\n");
+            memset(&recvline, 0, sizeof(recvline)); //clears previous messsage
+            if (read_msg(sockfd, recvline) <= 0) {
+                printf("READ FAILED.\n");
                 exit(1); // Exits if read fails aka disconnect
             }
-            printf("RECEIVE WORKS: %s", recvline);
         }
     } else {
         mkfifo(myfifo, 0666);
@@ -83,42 +79,42 @@ main(int argc, char *argv[])
             memset(&buf, 0, sizeof(buf));
             read(fd, buf, MAX_BUF);
             actmode = buf[0];
-            if (debug) printf("ACTMODE: %c\n", actmode);
+            if (DEBUG) printf("MODE: %c\n", actmode);
             for (i = 0; i < sizeof(buf)-1; i++) {
                 pos[i] = buf[i+1]; // Stores the message for later formatting
             }
 
-            if (debug) printf("MODE: %c\n", actmode);
             switch (actmode) {
                 case QUIT_MOD:
                     kill_children(pid, 0);
-                case DEBUG_MOD:
-                    if (debug != 0) debug = 0;
-                    else debug = 1;
-                    break;
                 case JOIN_MOD:
                     /* Save the value of the currently joined channel */
-                    if (debug) printf("JOINING...\n");
                     for (i = 0; i < sizeof(pos); i++) {
-                        channel[i] = pos[i];
+                        chan_name[i] = pos[i];
                     }
-                    sprintf(out, "JOIN %s\r\n", channel);
-                    send_msg(sockfd, out, debug);
+                    sprintf(out, "JOIN %s\r\n", chan_name);
+                    if (DEBUG) printf("JOIN: %s",out);
+                    send_msg(sockfd, out);
+                    add_chan(chan_head, chan_name);
                     break;
                 case PART_MOD:
                     /* leaves a channel */
-                    if (debug) printf("PARTING...\n");
                     for (i = 0; i < sizeof(pos); i++) {
-                        channel[i] = pos[i];
+                        chan_name[i] = pos[i];
                     }
-                    sprintf(out, "PART %s\r\n", channel);
-                    send_msg(sockfd, out, debug);
+                    sprintf(out, "PART %s\r\n", chan_name);
+                    if (DEBUG) printf("PART: %s",out);
+                    send_msg(sockfd, out);
+                    rm_chan(chan_head, chan_name);
+                    break;
+                case LIST_MOD:
+                    list_chan(chan_head);
                     break;
                 case WRIT_MOD:
                     /* Add a check to see if channel is an actual channel */
-                    if (debug) printf("WRITING...\n");
-                    sprintf(out, "PRIVMSG %s :%s\r\n", channel, pos);
-                    send_msg(sockfd, out, debug);
+                    sprintf(out, "PRIVMSG %s :%s\r\n", chan_name, pos);
+                    if (DEBUG) printf("WRITE: %s", out);
+                    send_msg(sockfd, out);
                     break;
                 case NICK_MOD:
                     break;
@@ -145,7 +141,7 @@ host_conn(char *server, unsigned int port, int *sockfd)
     /* modifies the sockfd for the rest of main() to use */
     *sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (*sockfd < 0) {
-        printf("socked creation failed.");
+        printf("Socket creation failed.");
         return 0;
     }
 
@@ -162,38 +158,84 @@ host_conn(char *server, unsigned int port, int *sockfd)
     return 1;
 }
 
-int add_chan(char *chan_in)
+int add_chan(Channel *head, char *chan_name)
+/* Adds a channel to a linked list */
 {
-    struct Channel newchan;
-    newchan.name = chan_in;
+    /* Filters out impossible channel names */
+    if (chan_name[0] == '#') { 
+        Channel *tmp;
+        tmp = head;
+        if (tmp != NULL) {
+            while (tmp->next != NULL) {
+                tmp = tmp->next; //Traverses to next item in list
+                /* Checks if the channel is already in the list, returns if it is */
+                if (strcmp(tmp->name, chan_name) == 0) return 1;
+            }
+        } 
+        tmp->next = malloc(sizeof(Channel)); //Creates new item
 
+        tmp = tmp->next; 
+
+        if (tmp == 0) {
+            printf("Out of memory.\n");
+            return -1;
+        }
+
+        /* inits list values */
+        tmp->name = strdup(chan_name);
+        tmp->next = NULL;
+        if (DEBUG) printf("LINKED: %s\n",tmp->name);
+        
+        return 0;
+    } else {
+        if (DEBUG) printf("%s is not a valid channel.\n", chan_name);
+        return 1;
+    }
 }
 
 int rm_chan()
+/* Removes last entry from a linked list */
 {
+    //TODO
+}
+
+int list_chan(Channel *head)
+/* Pretty Prints all channels client is connected to */
+{
+    Channel *tmp;
+    tmp = head;
+    if (tmp != NULL) {
+        printf("%s->", tmp->name);
+        while (tmp->next != NULL) {
+            tmp = tmp->next;
+            printf("%s->", tmp->name);
+        }
+    }
+    printf("\n");
 }
 
 int set_nick()
+/* sets the client's irc nickname */
 {
+    //TODO
 }
 
 int 
-send_msg(int sockfd, char *out, int debug)
+send_msg(int sockfd, char *out)
 /*sends a message to the irc channel*/
 {
     int n = send(sockfd, out, strlen(out), 0);
-    if (n > 0 && debug) printf("OUT: %s", out);
+    if (n > 0 && DEBUG) printf("OUT: %s", out);
 
     return n;
 }
 
 int
-read_msg(int sockfd, char *recvline, int debug)
+read_msg(int sockfd, char *recvline)
 /*reads next message from irc, and replies to any pings with send_msg*/
 {
-    memset(&recvline, 0, sizeof(recvline)); //clears previous messsage
     int n = read(sockfd, recvline, MAX_BUF);
-    if (n > 0 && debug) printf("IN: %s", recvline);
+    if (n > 0 && DEBUG) printf("IN: %s", recvline);
 
     // If message is PING, reply PONG
     char *pos, out[MAX_BUF+1];
@@ -202,7 +244,7 @@ read_msg(int sockfd, char *recvline, int debug)
         if (strstr(recvline, "PING") != NULL) {
             pos = strstr(recvline, " ")+1;
             sprintf(out, "PONG %s\r\n", pos);
-            send_msg(sockfd, out, debug);
+            send_msg(sockfd, out);
         }
     }
     return n;
