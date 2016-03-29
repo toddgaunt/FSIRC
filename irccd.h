@@ -4,12 +4,13 @@
 /* Maximum length of some strings */
 #define MAX_BUF 4096
 #define MAX_LINE 1024
-#define CHAN_LEN 64
+#define CHAN_LEN 128
 /* Command definitions, might change to pure ints */
 #define QUIT_MOD 'q' // quit mode
 #define WRIT_MOD 'w' // write to channel
 #define JOIN_MOD 'j' // join channel 
 #define PART_MOD 'p' // part from channel
+#define LOG_MOD 'l' // log chat display
 #define LIST_MOD 'L' // list channels
 #define NICK_MOD 'n' // nickname mode
 
@@ -32,7 +33,6 @@ int host_conn(char *server, unsigned int port, int *sockfd);
 int add_chan(Channel *head, char *name);
 int rm_chan();
 int list_chan(Channel *head);
-int set_nick();
 
 /* cleans up all forked processes */
 void kill_children(int pid, int ecode);

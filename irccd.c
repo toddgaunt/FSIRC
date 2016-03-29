@@ -34,14 +34,14 @@ main(int argc, char *argv[])
     char actmode = 0;
 
     /* Connection info */
-    char host_serv[MAX_BUF] = "162.213.39.42";
+    char host_serv[CHAN_LEN] = "162.213.39.42";
     char chan_name[CHAN_LEN];
     unsigned int port = 6667;
-    char nick[] = "iwakura_lain";
+    char nick[MAX_BUF] = "iwakura_lain";
     int sockfd; //socket
     
     /* Message buffers for sending and recieving */
-    char recvline[MAX_BUF+1], buf[MAX_BUF], out[MAX_BUF+1];
+    char recvline[MAX_BUF], buf[MAX_BUF], out[MAX_BUF], pos[MAX_BUF];
     
     /* For channel linked list */
     Channel *chan_head=NULL;
@@ -52,8 +52,6 @@ main(int argc, char *argv[])
         printf("connection failed.");
         exit(1);
     }
-
-    /* Initial connection and nickname */
     sprintf(out, "NICK %s\r\n", nick);
     send_msg(sockfd, out);
     sprintf(out, "USER %s 8 * :nick\r\n", nick);
@@ -72,7 +70,6 @@ main(int argc, char *argv[])
         }
     } else {
         mkfifo(myfifo, 0666);
-        char pos[MAX_BUF]; // Holds message without actcode
         int fd, i;
         while(1) {
             fd = open(myfifo, O_RDONLY); 
@@ -89,21 +86,25 @@ main(int argc, char *argv[])
                     kill_children(pid, 0);
                 case JOIN_MOD:
                     /* Save the value of the currently joined channel */
-                    for (i = 0; i < sizeof(pos); i++) {
+                    i = 0;
+                    while (pos[i] != '\0') {
                         chan_name[i] = pos[i];
+                        i += 1; 
                     }
+                    chan_name[i]='\0';
                     sprintf(out, "JOIN %s\r\n", chan_name);
-                    if (DEBUG) printf("JOIN: %s",out);
                     send_msg(sockfd, out);
                     add_chan(chan_head, chan_name);
                     break;
                 case PART_MOD:
                     /* leaves a channel */
-                    for (i = 0; i < sizeof(pos); i++) {
+                    i = 0;
+                    while (pos[i] != '\0') {
                         chan_name[i] = pos[i];
+                        i += 1; 
                     }
+                    chan_name[i]='\0';
                     sprintf(out, "PART %s\r\n", chan_name);
-                    if (DEBUG) printf("PART: %s",out);
                     send_msg(sockfd, out);
                     rm_chan(chan_head, chan_name);
                     break;
@@ -113,10 +114,17 @@ main(int argc, char *argv[])
                 case WRIT_MOD:
                     /* Add a check to see if channel is an actual channel */
                     sprintf(out, "PRIVMSG %s :%s\r\n", chan_name, pos);
-                    if (DEBUG) printf("WRITE: %s", out);
                     send_msg(sockfd, out);
                     break;
                 case NICK_MOD:
+                    i = 0;
+                    while (pos[i] != '\0') {
+                        nick[i] = pos[i];
+                        i += 1; 
+                    }
+                    nick[i] = '\0';
+                    sprintf(out, "NICK %s\r\n", nick);
+                    send_msg(sockfd, out);
                     break;
                 default:
                     printf("NO COMMAND...");
@@ -212,12 +220,6 @@ int list_chan(Channel *head)
         }
     }
     printf("\n");
-}
-
-int set_nick()
-/* sets the client's irc nickname */
-{
-    //TODO
 }
 
 int 

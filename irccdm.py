@@ -34,8 +34,8 @@ def main():
                         type = str,
                         help = 'Nick to connect with.')
 
-    parser.add_argument('-w', '--write',
-                        nargs = '+', type = str,
+    parser.add_argument('-w', '--write', metavar = 'message',
+                        type = str,
                         help = 'Write a line of text to irc.')
 
     parser.add_argument('-q', '--quit',
@@ -61,10 +61,13 @@ def main():
     except OSError:
         print ("server not up.")
     if args.write:
-        for i in range(len(args.write)):
-            msg = b'w' + str.encode(args.write[i]) # byte w = 'write' mode
-            fd.write(msg)
-            print(msg)
+        msg = b'w' + str.encode(args.write) # byte w = 'write' mode
+        fd.write(msg)
+        print(msg)
+    if args.nick:
+        msg = b'n' + str.encode(args.nick)
+        fd.write(msg)
+        print(msg)
     if args.listchan:
         msg = b'L'
         fd.write(msg)
