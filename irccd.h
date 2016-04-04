@@ -31,8 +31,8 @@ int read_msg(int sockfd, char *recvline);
 int host_conn(char *server, unsigned int port, int *sockfd);
 //TODO
 int add_chan(Channel *head, char *name);
-int rm_chan();
-int list_chan(Channel *head);
+int rm_chan(Channel *head, char *name);
+void list_chan(Channel *head);
 
 /* cleans up all forked processes */
 void kill_children(int pid, int ecode);

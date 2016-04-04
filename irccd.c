@@ -54,6 +54,7 @@ main(int argc, char *argv[])
     }
     sprintf(out, "NICK %s\r\n", nick);
     send_msg(sockfd, out);
+    sleep(.5);
     sprintf(out, "USER %s 8 * :nick\r\n", nick);
     send_msg(sockfd, out);
 
@@ -169,14 +170,14 @@ host_conn(char *server, unsigned int port, int *sockfd)
 int add_chan(Channel *head, char *chan_name)
 /* Adds a channel to a linked list */
 {
-    /* Filters out impossible channel names */
+    // Filters out impossible channel names */
     if (chan_name[0] == '#') { 
         Channel *tmp;
         tmp = head;
         if (tmp != NULL) {
             while (tmp->next != NULL) {
                 tmp = tmp->next; //Traverses to next item in list
-                /* Checks if the channel is already in the list, returns if it is */
+                // Checks if the channel is already in the list, returns if it is */
                 if (strcmp(tmp->name, chan_name) == 0) return 1;
             }
         } 
@@ -189,7 +190,7 @@ int add_chan(Channel *head, char *chan_name)
             return -1;
         }
 
-        /* inits list values */
+        /* init Channel values */
         tmp->name = strdup(chan_name);
         tmp->next = NULL;
         if (DEBUG) printf("LINKED: %s\n",tmp->name);
@@ -201,13 +202,34 @@ int add_chan(Channel *head, char *chan_name)
     }
 }
 
-int rm_chan()
+int rm_chan(Channel *head, char *chan_name)
 /* Removes last entry from a linked list */
 {
-    //TODO
+    // requires a valid channel name beginning with # */
+    if (chan_name[0] == '#') {
+        Channel *tmp;
+        Channel *garbage;
+        tmp = head;
+        if (tmp != NULL) {
+            while (tmp->next != NULL) {
+                if (strcmp(tmp->next->name, chan_name) == 0) {
+                    // Frees link and then redirects it to the next node.
+                    garbage = tmp->next; 
+                    tmp->next = tmp->next->next;
+                    free(garbage);
+                    return 0; //returns successfully if item is removed.
+                } else {
+                    tmp = tmp->next;
+                }
+            }
+        }
+    } else {
+        if (DEBUG) printf("%s is not a valid channel.\n", chan_name);
+    }
+    return 1;
 }
 
-int list_chan(Channel *head)
+void list_chan(Channel *head)
 /* Pretty Prints all channels client is connected to */
 {
     Channel *tmp;
