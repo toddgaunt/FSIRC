@@ -64,6 +64,10 @@ def main():
         msg = b'w' + str.encode(args.write) # byte w = 'write' mode
         fd.write(msg)
         print(msg)
+    if args.connect:
+        msg = b'c' + str.encode(args.connect) # byte w = 'write' mode
+        fd.write(msg)
+        print(msg)
     if args.nick:
         msg = b'n' + str.encode(args.nick)
         fd.write(msg)
@@ -81,7 +85,7 @@ def main():
         fd.write(msg)
         print(msg)
     if args.quit:
-        msg = b'q'
+        msg = b'Q'
         fd.write(msg)
         print(msg)
     fd.close()
