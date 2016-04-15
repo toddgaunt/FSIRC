@@ -51,7 +51,8 @@ int rm_chan(Channel *head, char *name);
 void list_chan(Channel *head);
 
 
-/* cleans up all forked processes */
+/* Utility functions */
+int test_conn(int sockfd);
 void kill_children(int pid, int ecode);
 
 #endif

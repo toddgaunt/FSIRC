@@ -61,7 +61,7 @@ int main(int argc, char *argv[])
 
         switch (actmode) {
             case JOIN_MOD:
-                // Save the value of the currently joined channel
+                // joins a channel
                 i = 0;
                 while (pos[i] != '\0') {
                     chan_name[i] = pos[i];
@@ -69,8 +69,11 @@ int main(int argc, char *argv[])
                 }
                 chan_name[i]='\0';
                 sprintf(out, "JOIN %s\r\n", chan_name);
-                send_msg(sockfd, out);
-                add_chan(chan_head, chan_name);
+                if (send_msg(sockfd, out) > 0) {
+                    add_chan(chan_head, chan_name);
+                } else {
+                    printf("not connected.\n");
+                }
                 break;
             case PART_MOD:
                 // leaves a channel
@@ -81,8 +84,11 @@ int main(int argc, char *argv[])
                 }
                 chan_name[i]='\0';
                 sprintf(out, "PART %s\r\n", chan_name);
-                send_msg(sockfd, out);
-                rm_chan(chan_head, chan_name);
+                if (send_msg(sockfd, out) > 0) {
+                    rm_chan(chan_head, chan_name);
+                } else {
+                    printf("not connected.\n");
+                }
                 break;
             case LIST_MOD:
                 list_chan(chan_head);
@@ -94,7 +100,7 @@ int main(int argc, char *argv[])
                 break;
             case NICK_MOD:
                 if (strcmp(nick, pos) == 0) {
-                    if (DEBUG) printf("Nickname %s is already in use", nick);
+                    if (DEBUG) printf("Nickname %s is already in use by this client.", nick);
                 } else {
                     i = 0;
                     while (pos[i] != '\0') {
@@ -133,7 +139,7 @@ int main(int argc, char *argv[])
             case DISC_MOD:
                 break;
             case QUIT_MOD:
-                //kill_children(pid, 0);
+                kill_children(pid, 0);
             default:
                 printf("NO COMMAND...");
                 sleep(1);
@@ -209,7 +215,6 @@ int spawn_reader(int sockfd)
     char recvline[MAX_BUF];
     if (pid == 0) {
         while(1) {
-            if (DEBUG) printf("READING...\n");
             memset(&recvline, 0, sizeof(recvline)); // clears previous messsage
             if (read_msg(sockfd, recvline) <= 0) {
                 if (DEBUG) printf("READ FAILED.\n");
