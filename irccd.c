@@ -61,8 +61,11 @@ int main(int argc, char *argv[])
 
         switch (actmode) {
             case JOIN_MOD:
-                // joins a channel
                 i = 0;
+                if (pos[0] != '#') { 
+                    if (DEBUG) printf("%s is not a valid channel\n", chan_name);
+                    break;
+                }
                 while (pos[i] != '\0') {
                     chan_name[i] = pos[i];
                     i += 1; 
@@ -72,12 +75,15 @@ int main(int argc, char *argv[])
                 if (send_msg(sockfd, out) > 0) {
                     add_chan(chan_head, chan_name);
                 } else {
-                    printf("not connected.\n");
+                    printf("not connected\n");
                 }
                 break;
             case PART_MOD:
-                // leaves a channel
                 i = 0;
+                if (pos[0] != '#') {
+                    if (DEBUG) printf("%s is not a valid channel\n", chan_name);
+                    break;
+                }
                 while (pos[i] != '\0') {
                     chan_name[i] = pos[i];
                     i += 1; 
@@ -87,20 +93,19 @@ int main(int argc, char *argv[])
                 if (send_msg(sockfd, out) > 0) {
                     rm_chan(chan_head, chan_name);
                 } else {
-                    printf("not connected.\n");
+                    printf("not connected\n");
                 }
                 break;
             case LIST_MOD:
                 list_chan(chan_head);
                 break;
             case WRITE_MOD:
-                // Add a check to see if channel is an actual channel
                 sprintf(out, "PRIVMSG %s :%s\r\n", chan_name, pos);
                 send_msg(sockfd, out);
                 break;
             case NICK_MOD:
                 if (strcmp(nick, pos) == 0) {
-                    if (DEBUG) printf("Nickname %s is already in use by this client.", nick);
+                    if (DEBUG) printf("Nickname %s is already in use by this client", nick);
                 } else {
                     i = 0;
                     while (pos[i] != '\0') {
@@ -115,7 +120,7 @@ int main(int argc, char *argv[])
             case CONN_MOD:
                 // Test if we're already connected somewhere
                 if (strcmp(host_serv, pos) == 0 && send_msg(sockfd, "PING") != -1) {
-                    if (DEBUG) printf("Server %s already connected to.", nick);
+                    if (DEBUG) printf("Server %s already connected to.\n", nick);
                 } else {
                     i = 0;
                     while (pos[i] != '\0') {
@@ -125,7 +130,7 @@ int main(int argc, char *argv[])
                     host_serv[i] = '\0';
 
                     if (!host_conn(host_serv, port, &sockfd)) {
-                        printf("Connection failed.\n");
+                        printf("Connection failed\n");
                         exit(1);
                     }
                     sprintf(out, "NICK %s\r\n", nick);
@@ -137,11 +142,12 @@ int main(int argc, char *argv[])
                 }
                 break;
             case DISC_MOD:
+                //TODO disconnect from server here
                 break;
             case QUIT_MOD:
                 kill_children(pid, 0);
             default:
-                printf("NO COMMAND...");
+                printf("NO COMMAND");
                 sleep(1);
         }
         close(fd);
@@ -160,7 +166,7 @@ int host_conn(char *host, unsigned int port, int *sockfd)
     /* modifies the sockfd for the rest of main() to use */
     *sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (*sockfd < 0) {
-        printf("Socket creation failed.");
+        printf("Socket creation failed");
         return 0;
     }
 
@@ -217,7 +223,7 @@ int spawn_reader(int sockfd)
         while(1) {
             memset(&recvline, 0, sizeof(recvline)); // clears previous messsage
             if (read_msg(sockfd, recvline) <= 0) {
-                if (DEBUG) printf("READ FAILED.\n");
+                if (DEBUG) printf("READ FAILED\n");
                 exit(1); // exits if read failed aka disconnect
             }
         }
@@ -226,64 +232,47 @@ int spawn_reader(int sockfd)
 }
 
 int add_chan(Channel *head, char *chan_name)
-{/* Adds a channel to a linked list */
-    // Filters out impossible channel names
-    if (chan_name[0] == '#') { 
-        Channel *tmp;
-        tmp = head;
-        if (tmp != NULL) {
-            while (tmp->next != NULL) {
-                tmp = tmp->next; //Traverses to next item in list
-                // Checks if the channel is already in the list, returns if it is 
-                if (strcmp(tmp->name, chan_name) == 0) return 1;
-            }
-        } 
-        tmp->next = malloc(sizeof(Channel)); //Creates new item
-
-        tmp = tmp->next; 
-
-        if (tmp == 0) {
-            printf("Out of memory.\n");
-            return -1;
-        }
-
-        /* init Channel values */
-        tmp->name = strdup(chan_name);
-        tmp->next = NULL;
-        if (DEBUG) printf("LINKED: %s\n",tmp->name);
-        
-        return 0;
-    } else {
-        if (DEBUG) printf("%s is not a valid channel.\n", chan_name);
-        return 1;
+{/* Adds a channel to end of a list */
+    Channel *tmp;
+    tmp = head;
+    while (tmp->next != NULL) {
+        tmp = tmp->next;
+        if (strcmp(tmp->name, chan_name) == 0) return 1;
     }
+    tmp->next = malloc(sizeof(Channel)); 
+
+    tmp = tmp->next; 
+
+    if (tmp == 0) {
+        printf("Out of memory\n");
+        return -1;
+    }
+
+    /* init Channel values */
+    tmp->name = strdup(chan_name);
+    tmp->next = NULL;
+    if (DEBUG) printf("LINKED: %s\n",tmp->name);
+    
+    return 0;
 }
 
 int rm_chan(Channel *head, char *chan_name)
-{/* Removes last entry from a linked list */
-    // requires a valid channel name beginning with #
-    if (chan_name[0] == '#') {
-        Channel *tmp;
-        Channel *garbage;
-        tmp = head;
-        if (tmp != NULL) {
-            while (tmp->next != NULL) {
-                if (strcmp(tmp->next->name, chan_name) == 0) {
-                    // Frees link and then redirects it to the next node.
-                    garbage = tmp->next; 
-                    tmp->next = tmp->next->next;
-                    if (DEBUG) printf("Channel %s removed.\n", garbage->name);
-                    free(garbage->name);
-                    free(garbage);
-                    return 0; //returns successfully if item is removed.
-                } else {
-                    tmp = tmp->next;
-                }
-            }
+{/* Removes entry with item->name == chan_name from list */
+    Channel *garbage;
+    Channel *tmp = head;
+    while (tmp->next != NULL) {
+        if (strcmp(tmp->next->name, chan_name) != 0) {
+            tmp = tmp->next;
+        } else {
+            garbage = tmp->next; 
+            tmp->next = tmp->next->next;
+            if (DEBUG) printf("Channel %s removed\n", garbage->name);
+            free(garbage->name);
+            free(garbage);
+            return 0;
         }
-    } else {
-        if (DEBUG) printf("%s is not a valid channel.\n", chan_name);
     }
+    if (DEBUG) printf("Channel %s not found in list", chan_name);
     return 1;
 }
 

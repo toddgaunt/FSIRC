@@ -26,6 +26,8 @@ def main():
         msg = cmd_host()
     elif args.command[0] == "channel" or args.command[0] == "chan":
         msg = cmd_channel()
+    elif args.command[0] == "quit":
+        msg = b'Q'
     else:
         print("No commands entered")
         quit()
@@ -131,6 +133,8 @@ def cmd_channel():
     elif command == "remove":
         #TODO
         pass
+    elif command == "list":
+        msg = 'L'
     elif command == "join":
         msg = 'j' + channel
     elif command == "part":
