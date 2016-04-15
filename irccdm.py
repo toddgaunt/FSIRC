@@ -1,94 +1,40 @@
 #! /usr/bin/env python3
 # This program is the commandline tool for interacting with ircd.
 # It will allow you to control ircd from the cmd line.
-#TODO allow for commands to be looped infinitely with an argument, eg. send READ until break
 
 import argparse
 import os
 import json
 import time
+import sys
 
 def main():
-    conf = read_config('config.json', 'default')
     fifo_file = "/tmp/irccd.fifo"
+    conf = read_config('config.json', 'default')
 
     parser = argparse.ArgumentParser(description = "Simple python based irc-bot daemon")
 
-    parser.add_argument('-c', '--connect', metavar = 'host',
-                        type = str,
-                        help = 'Host to connect to.')
+    parser.add_argument('command', metavar='command',
+                        nargs = '+',
+                        help = 'Subcommand to be run')
 
-    parser.add_argument('-j', '--join', metavar = 'channel',
-                        type = str,
-                        help = 'Channel to connect to.')
+    args = parser.parse_args(sys.argv[1:2])
 
-    parser.add_argument('-p', '--part', metavar = 'channel',
-                        type = str,
-                        help = 'Channel to part with.')
-
-    parser.add_argument('-P', '--port', metavar = 'port',
-                        type = int,
-                        help = 'Which port to connect with')
-
-    parser.add_argument('-n', '--nick', metavar = 'name',
-                        type = str,
-                        help = 'Nick to connect with.')
-
-    parser.add_argument('-w', '--write', metavar = 'message',
-                        type = str,
-                        help = 'Write a line of text to irc.')
-
-    parser.add_argument('-q', '--quit',
-                        action = 'store_true', default = False,
-                        help = 'Make the server quit.')
-
-    parser.add_argument('-L', '--listchan',
-                        action = 'store_true', default = False,
-                        help = 'List all channels.')
-
-    parser.add_argument('-R', '--Realname', metavar = 'realname',
-                        type = str,
-                        help = 'Realname to connect with.')
-
-    parser.add_argument('-v', '--verbose',
-                        action = "store_true", default = True,
-                        help = 'Turns on more verbose output.')
-
-    args = parser.parse_args()
-
+    if args.command[0] == "write":
+        msg = cmd_write()
+    elif args.command[0] == "host":
+        msg = cmd_host()
+    elif args.command[0] == "channel" or args.command[0] == "chan":
+        msg = cmd_channel()
+    else:
+        print("No commands entered")
+        quit()
     try:
         fd = open(fifo_file, 'wb', 0)
+        fd.write(msg)
+        fd.close()
     except OSError:
-        print ("server not up.")
-    if args.write:
-        msg = b'w' + str.encode(args.write) # byte w = 'write' mode
-        fd.write(msg)
-        print(msg)
-    if args.connect:
-        msg = b'c' + str.encode(args.connect) # byte w = 'write' mode
-        fd.write(msg)
-        print(msg)
-    if args.nick:
-        msg = b'n' + str.encode(args.nick)
-        fd.write(msg)
-        print(msg)
-    if args.listchan:
-        msg = b'L'
-        fd.write(msg)
-        print(msg)
-    if args.part:
-        msg = b'p' + str.encode(args.part) # byte p = 'part' mode
-        fd.write(msg)
-        print(msg)
-    if args.join:
-        msg = b'j' + str.encode(args.join) # byte j = 'join' mode
-        fd.write(msg)
-        print(msg)
-    if args.quit:
-        msg = b'Q'
-        fd.write(msg)
-        print(msg)
-    fd.close()
+        print ("No fifo file")
 
 def read_config(file, name):
     """Reads json configuration file"""
@@ -96,6 +42,107 @@ def read_config(file, name):
         data = json.loads(fd.read())
         conf = data[name]
         return conf
+
+def cmd_write():
+    parser = argparse.ArgumentParser(description = "Write messages to irc")
+
+    parser.add_argument('command', metavar='command',
+                        type = str, default = '',
+                        help = 'Subcommand to be run')
+
+    parser.add_argument('-m', '--message', metavar = 'message',
+                        type = str,
+                        help = 'Message to be sent')
+
+    args = parser.parse_args(sys.argv[2:])
+    command = args.command
+
+    if args.message:
+        msg = args.message
+    else:
+        #TODO open up default editor so user can write a message
+        msg = ""
+
+    if command == "message" or command == "msg":
+        msg = 'w' + msg
+    else:
+        invalid()
+
+    return str.encode(msg)
+
+def cmd_host():
+    parser = argparse.ArgumentParser(description = "Manage connection to host")
+
+    parser.add_argument('command', metavar='command',
+                        type = str, default = '',
+                        help = 'Subcommand to be run')
+
+    parser.add_argument('-H', '--host', metavar='host',
+                        type = str,
+                        help = 'Host ip or name')
+
+    args = parser.parse_args(sys.argv[2:])
+    command = args.command
+
+    if args.host:
+        host = args.host
+    else:
+        host = ""
+
+    if command == "add":
+        #TODO adds host to hostdict
+        pass
+    elif command == "remove":
+        #TODO
+        pass
+    elif command == "connect":
+        msg = 'c' + host
+    elif command == "disconnect":
+        msg = 'd'
+    elif command == "ping":
+        msg = 'p'
+    else:
+        invalid()
+
+    return str.encode(msg)
+
+def cmd_channel():
+    parser = argparse.ArgumentParser(description = "Manage irc channels")
+
+    parser.add_argument('command', metavar='command',
+                        type = str, default = '',
+                        help = 'Subcommand to be run')
+
+    parser.add_argument('-c', '--channel', metavar='channel',
+                        type = str,
+                        help = 'Target Channel')
+
+    args = parser.parse_args(sys.argv[2:])
+    command = args.command
+
+    if args.channel:
+        channel = args.channel
+    else:
+        channel = ""
+
+    if command == "add":
+        #TODO
+        pass
+    elif command == "remove":
+        #TODO
+        pass
+    elif command == "join":
+        msg = 'j' + channel
+    elif command == "part":
+        msg = 'p' + channel
+    else:
+        invalid()
+
+    return str.encode(msg)
+
+def invalid_cmd():
+        print ("Not a valid subcommand")
+        quit()
 
 if __name__  ==  "__main__":
     main()
