@@ -45,11 +45,11 @@ int send_msg(int sockfd, char *out);
 int read_msg(int sockfd, char *recvline);
 
 /* The commands sent to this irc daemon */
+int local_bind(char *path, int *sockfd);
 int host_conn(char *server, unsigned int port, int *sockfd);
 int add_chan(Channel *head, char *name);
 int rm_chan(Channel *head, char *name);
 int list_chan(Channel *head, char *out);
-
 
 /* Utility functions */
 int test_conn(int sockfd);

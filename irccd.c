@@ -8,6 +8,7 @@
  * it will auto-save messages for you
  * and can be called from the command line
  * to send messages to the specified channel.
+ * TODO conform to XDG spec, ~/.config/irccd/socket, ~/.config/irccd/log etc..
  */
 
 #include <stdio.h> 
@@ -20,7 +21,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
-#include <sys/uh.h>
+#include <sys/un.h>
 #include <signal.h>
 #include <malloc.h>
 /* - - - - - - - */
@@ -30,6 +31,8 @@ int main(int argc, char *argv[])
 {
     // Some program info
     int mysocket = 0; // socket used for client to connect to irccd
+    char path[108] = "hello"; //TODO define XDG spec for this
+    local_bind(path, &mysocket);
     char *myfifo = "/tmp/irccd.fifo";
     char actmode = 0;
     int pid = 0;
@@ -166,7 +169,7 @@ int host_conn(char *host, unsigned int port, int *host_socket)
     servaddr.sin_family = AF_INET;
     servaddr.sin_port = htons(port);
     
-    /* modifies the host_socket for the rest of main() to use */
+    // modifies the host_socket for the rest of main() to use
     *host_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (*host_socket < 0) {
         printf("Socket creation failed");
@@ -178,8 +181,29 @@ int host_conn(char *host, unsigned int port, int *host_socket)
         return 0;
     }
 
-    /* points sockaddr pointer to servaddr because connect takes sockaddr structs */
+    // points sockaddr pointer to servaddr because connect takes sockaddr structs
     if (connect(*host_socket, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
+        return 0;
+    }
+
+    return 1;
+}
+
+int local_bind(char *path, int *local_socket)
+{/* contructs a local unix socket for inter-process communication */
+    struct sockaddr_un servaddr; 
+    memset(&servaddr, 0, sizeof(servaddr));
+    servaddr.sun_family = AF_UNIX;
+    strcpy(servaddr.sun_path, path);
+
+    // modifies local socket for unix communication 
+    *local_socket = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (*local_socket < 0) {
+        printf("Socket creation failed");
+        return 0;
+    }
+
+    if (connect(*local_socket, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
         return 0;
     }
 
