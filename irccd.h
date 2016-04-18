@@ -48,7 +48,7 @@ int read_msg(int sockfd, char *recvline);
 int host_conn(char *server, unsigned int port, int *sockfd);
 int add_chan(Channel *head, char *name);
 int rm_chan(Channel *head, char *name);
-void list_chan(Channel *head);
+int list_chan(Channel *head, char *out);
 
 
 /* Utility functions */
