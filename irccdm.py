@@ -8,8 +8,10 @@ import json
 import time
 import sys
 
+# globals
+fifo_file = "/tmp/irccd.fifo"
+
 def main():
-    fifo_file = "/tmp/irccd.fifo"
     conf = read_config('config.json', 'default')
 
     parser = argparse.ArgumentParser(description = "Simple python based irc-bot daemon")
@@ -21,16 +23,20 @@ def main():
     args = parser.parse_args(sys.argv[1:2])
 
     if args.command[0] == "write":
-        msg = cmd_write()
+        cmd_write()
     elif args.command[0] == "host":
-        msg = cmd_host()
+        cmd_host()
     elif args.command[0] == "channel" or args.command[0] == "chan":
-        msg = cmd_channel()
+        cmd_channel()
     elif args.command[0] == "quit":
-        msg = b'Q'
+        fifo_write('Q')
     else:
         print("No commands entered")
         quit()
+
+def fifo_write(msg):
+    global fifo_file
+    msg = str.encode(msg)
     try:
         fd = open(fifo_file, 'wb', 0)
         fd.write(msg)
@@ -66,11 +72,9 @@ def cmd_write():
         msg = ""
 
     if command == "message" or command == "msg":
-        msg = 'w' + msg
+        fifo_write('w' + msg)
     else:
         invalid()
-
-    return str.encode(msg)
 
 def cmd_host():
     parser = argparse.ArgumentParser(description = "Manage connection to host")
@@ -98,15 +102,13 @@ def cmd_host():
         #TODO
         pass
     elif command == "connect":
-        msg = 'c' + host
+        fifo_write('c' + host)
     elif command == "disconnect":
-        msg = 'd'
+        fifo_write('d')
     elif command == "ping":
-        msg = 'p'
+        fifo_write('p')
     else:
         invalid()
-
-    return str.encode(msg)
 
 def cmd_channel():
     parser = argparse.ArgumentParser(description = "Manage irc channels")
@@ -134,15 +136,13 @@ def cmd_channel():
         #TODO
         pass
     elif command == "list":
-        msg = 'L'
+        fifo_write('L')
     elif command == "join":
-        msg = 'j' + channel
+        fifo_write('j' + channel)
     elif command == "part":
-        msg = 'p' + channel
+        fifo_write('p' + channel)
     else:
         invalid()
-
-    return str.encode(msg)
 
 def invalid_cmd():
         print ("Not a valid subcommand")
