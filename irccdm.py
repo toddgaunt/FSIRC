@@ -14,7 +14,24 @@ fifo_file = "/tmp/irccd.fifo"
 def main():
     conf = read_config('config.json', 'default')
 
-    parser = argparse.ArgumentParser(description = "Simple python based irc-bot daemon")
+    parser = argparse.ArgumentParser(description = "Messaging client for irccd\n
+                                                    Most common commands are:
+                                                        write
+                                                            message
+                                                            nick
+                                                        host
+                                                            add
+                                                            remove
+                                                            connect
+                                                            disconnect
+                                                            ping
+                                                        channel
+                                                            add
+                                                            remove
+                                                            join
+                                                            part
+                                                            list
+                                                    ")
 
     parser.add_argument('command', metavar='command',
                         nargs = '+',
@@ -74,7 +91,7 @@ def cmd_write():
     if command == "message" or command == "msg":
         fifo_write('w' + msg)
     else:
-        invalid()
+        invalid_cmd()
 
 def cmd_host():
     parser = argparse.ArgumentParser(description = "Manage connection to host")
@@ -108,7 +125,7 @@ def cmd_host():
     elif command == "ping":
         fifo_write('p')
     else:
-        invalid()
+        invalid_cmd()
 
 def cmd_channel():
     parser = argparse.ArgumentParser(description = "Manage irc channels")
@@ -142,7 +159,7 @@ def cmd_channel():
     elif command == "part":
         fifo_write('p' + channel)
     else:
-        invalid()
+        invalid_cmd()
 
 def invalid_cmd():
         print ("Not a valid subcommand")
