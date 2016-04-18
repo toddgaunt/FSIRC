@@ -14,23 +14,23 @@ fifo_file = "/tmp/irccd.fifo"
 def main():
     conf = read_config('config.json', 'default')
 
-    parser = argparse.ArgumentParser(description = "Messaging client for irccd\n
-                                                    Most common commands are:
-                                                        write
-                                                            message
-                                                            nick
-                                                        host
-                                                            add
-                                                            remove
-                                                            connect
-                                                            disconnect
-                                                            ping
-                                                        channel
-                                                            add
-                                                            remove
-                                                            join
-                                                            part
-                                                            list
+    parser = argparse.ArgumentParser(description = "Messaging client for irccd  \
+                                                    The commands are:   \
+                                                        write   \
+                                                            [message,\
+                                                            nick],    \
+                                                        host    \
+                                                            [add, \
+                                                            remove,  \
+                                                            connect, \
+                                                            disconnect,  \
+                                                            ping],    \
+                                                        channel \
+                                                            [add, \
+                                                            remove,  \
+                                                            join,    \
+                                                            part,    \
+                                                            list]    \
                                                     ")
 
     parser.add_argument('command', metavar='command',
