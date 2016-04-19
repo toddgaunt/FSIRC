@@ -30,9 +30,9 @@
 int main(int argc, char *argv[]) 
 {
     // Some program vars
-    int mysocket = 0; // socket used for client to connect to irccd
-    char path[108] = "hello"; //TODO define XDG spec for this
-    local_bind(path, &mysocket);
+    int local_sockfd = 0; // socket used for client to connect to irccd
+    char path[108] = "/tmp/irccd.socket"; //TODO define XDG spec for this
+    local_bind(path, &local_sockfd);
     char *myfifo = "/tmp/irccd.fifo";
     char actmode = 0;
     int pid = 0;
@@ -60,8 +60,9 @@ int main(int argc, char *argv[])
         read(fd, buf, sizeof(buf));
         actmode = buf[0];
 
-        if (DEBUG) printf("MODE: %c\n", actmode);
-
+        if (DEBUG) {
+            printf("MODE: %c\n", actmode);
+        }
         for (i = 0; i < sizeof(buf)-1; i++) {
             pos[i] = buf[i+1]; // Stores the message seperately from actcode
         }
@@ -78,8 +79,6 @@ int main(int argc, char *argv[])
 
                 if (send_msg(host_sockfd, out) > 0) {
                     add_chan(chan_head, chan_name);
-                } else {
-                    printf("not connected\n");
                 }
                 break;
             case PART_MOD:
@@ -92,13 +91,11 @@ int main(int argc, char *argv[])
 
                 if (send_msg(host_sockfd, out) > 0) {
                     rm_chan(chan_head, chan_name);
-                } else {
-                    printf("not connected\n");
                 }
                 break;
             case LIST_MOD:
-                list_chan(chan_head, out);
-                printf(out);
+                sprintf(out, "LIST %s\r\n", pos);
+                send_msg(host_sockfd, out);
                 break;
             case WRITE_MOD:
                 sprintf(out, "PRIVMSG %s :%s\r\n", chan_name, pos);
@@ -106,7 +103,7 @@ int main(int argc, char *argv[])
                 break;
             case NICK_MOD:
                 if (strcmp(nick, pos) == 0) {
-                    if (DEBUG) printf("Nickname %s is already in use by this client", nick);
+                    if (DEBUG) printf("Nickname %s is already in use by this client\n", nick);
                     break;
                 } 
                 strcpy(nick, pos);
@@ -119,7 +116,7 @@ int main(int argc, char *argv[])
                     if (DEBUG) printf("Server %s already connected to.\n", nick);
                 } else {
                     strcpy(host_serv, pos);
-                    if (!host_conn(host_serv, port, &host_sockfd)) {
+                    if (host_conn(host_serv, port, &host_sockfd) != 0) {
                         printf("Connection failed\n");
                         exit(1);
                     }
@@ -138,7 +135,7 @@ int main(int argc, char *argv[])
                 kill_child(pid, 0);
                 exit(0);
             default:
-                printf("NO COMMAND");
+                printf("NO COMMAND\n");
                 sleep(1);
         }
     }
@@ -157,19 +154,19 @@ int host_conn(char *host, unsigned int port, int *host_sockfd)
     // modifies the host_sockfd for the rest of main() to use
     *host_sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (*host_sockfd < 0) {
-        printf("Socket creation failed");
-        return 0;
+        printf("Socket creation failed\n");
+        return 1;
     }
     if (inet_pton(AF_INET, host, &servaddr.sin_addr) <= 0) {
-        printf("Invalid network address.\n");
-        return 0;
+        printf("Invalid network address\n");
+        return 1;
     }
     // points sockaddr pointer to servaddr because connect takes sockaddr structs
     if (connect(*host_sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
-        return 0;
+        return 1;
     }
 
-    return 1;
+    return 0;
 }
 
 int host_disc(int *host_sockfd)
@@ -189,18 +186,21 @@ int local_bind(char *path, int *local_sockfd)
     // modifies local socket for unix communication 
     *local_sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (*local_sockfd < 0) {
-        printf("Socket creation failed");
-        return 0;
+        printf("Socket creation failed\n");
+        return 1;
     }
-    if (connect(*local_sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
-        return 0;
+    if (bind(*local_sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
+        return 1;
     }
-    return 1;
+    return 0;
 }
 
 int send_msg(int host_sockfd, char *out)
 {/* Send message with debug output to socket */
     int n = send(host_sockfd, out, strlen(out), 0);
+    if (n <= 0) {
+        printf("Message sending error\n");
+    }
     if (n > 0 && DEBUG) {
         printf("OUT: %s", out);
     }
@@ -289,7 +289,7 @@ int rm_chan(Channel *head, char *chan_name)
         }
     }
     if (DEBUG) {
-        printf("Channel %s not found in list", chan_name);
+        printf("Channel %s not found in list\n", chan_name);
     }
     return 1;
 }
