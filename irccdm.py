@@ -73,7 +73,7 @@ def cmd_write():
 
     parser.add_argument('command', metavar='command',
                         type = str, default = '',
-                        help = 'Subcommand to be run')
+                        help = 'Subcommand to be run [message(msg)]')
 
     parser.add_argument('-m', '--message', metavar = 'message',
                         type = str,
