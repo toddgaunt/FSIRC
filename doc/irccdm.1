@@ -1,0 +1,44 @@
+.TH irccdm 1 "2016-04-19" "version 1.0"
+.SH NAME
+irccdm - irc client daemon messenger
+
+.SH SYNOPSIS
+.B irccdm <command>
+
+.SH COMMANDS (HIGH-LEVEL)
+
+.B irccdm-write
+.RS 
+Invoke an operation that sends text to the irc host
+.RE
+.PP
+.B irccdm-host
+.RS 
+Operate commands that interact with remote irc host
+.RE
+.PP
+
+.B irccdm-channel
+.RS 
+Operate commands that interact with channels on remote irc host
+.RE
+.PP
+
+.SH COMMANDS (SUB-COMMANDS)
+.B irccdm-write-message
+.RS 
+Send Privmsg to irc host
+.RE
+.PP
+
+.B irccdm-host-connect
+.RS 
+Connect to remote irc host
+.RE
+.PP
+
+.B irccdm-host-disconnect
+.RS 
+Disconnect to remote irc host
+.RE
+.PP
