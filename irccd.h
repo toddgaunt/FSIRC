@@ -58,7 +58,7 @@ int host_disc(int *host_sockfd);
 int add_chan(Channel *head, char *name);
 int rm_chan(Channel *head, char *name);
 int list_chan(Channel *head, char *out);
-int ping_host(int sockfd, char *msg);
+int ping_host(int sockfd);
 int login_host(int sockfd, char *nick, char *realname); 
 
 /* Utility functions */

@@ -123,7 +123,7 @@ def cmd_host():
     elif command == "disconnect":
         fifo_write('d')
     elif command == "ping":
-        fifo_write('p')
+        fifo_write('P')
     else:
         invalid_cmd()
 

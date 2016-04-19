@@ -31,7 +31,7 @@
 int main(int argc, char *argv[]) 
 {
     // Connection variables
-    char *host_serv = "162.213.39.42";
+    char host_serv[CHAN_LEN] = "162.213.39.42";
     unsigned int port = 6667;
     Channel *chan_head = NULL;
     char nick[NICK_LEN] = "iwakura_lain";
@@ -114,7 +114,7 @@ int main(int argc, char *argv[])
                 break;
             case CONN_MOD:
                 // Test if we're already connected somewhere
-                if (strcmp(host_serv, pos) == 0 && ping_host(host_sockfd, "") != -1) {
+                if (strcmp(host_serv, pos) == 0 && ping_host(host_sockfd) != -1) {
                     if (DEBUG) printf("Server %s already connected to.\n", nick);
                 } else {
                     strcpy(host_serv, pos);
@@ -122,13 +122,17 @@ int main(int argc, char *argv[])
                         printf("Connection failed\n");
                         exit(1);
                     }
+                    sprintf(out, "NICK %s\r\n", nick);
+                    send_msg(host_sockfd, out);
+                    sprintf(out, "USER %s 8 * :nick\r\n", nick);
+                    send_msg(host_sockfd, out);
                     // Seperate process reads socket
                     pid = spawn_reader(host_sockfd);
                 }
                 break;
             case PING_MOD:
-                sprintf(out, "NICK %s\r\n", pos);
-                ping_host(host_sockfd, out);
+                ping_host(host_sockfd);
+                break;
             case DISC_MOD:
                 host_disc(&host_sockfd);
                 break;
@@ -313,11 +317,9 @@ int list_chan(Channel *head, char *out)
     return 0;
 }
 
-int ping_host(int sockfd, char *msg)
+int ping_host(int sockfd)
 {/* Sens a ping message to a socket */
-    char out[sizeof(msg)];
-    sprintf(out, "PING %s\r\n", msg);
-    return send_msg(sockfd, out);
+    return send_msg(sockfd, "PING\r\n");
 }
 
 int login_host(int sockfd, char *nick, char *realname) 
@@ -326,7 +328,8 @@ int login_host(int sockfd, char *nick, char *realname)
     sprintf(out, "NICK %s\r\n", nick);
     send_msg(sockfd, out);
     sprintf(out, "USER %s 8 * :nick\r\n", nick);
-    return send_msg(sockfd, out);
+    send_msg(sockfd, out);
+    return 0;
 }
 
 void kill_child(int pid, int ecode)
