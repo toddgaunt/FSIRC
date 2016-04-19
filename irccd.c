@@ -24,31 +24,33 @@
 #include <sys/un.h>
 #include <signal.h>
 #include <malloc.h>
+//#include <libconfig.h>//Use this to make config file
 /* - - - - - - - */
 #include "irccd.h"
 
 int main(int argc, char *argv[]) 
 {
-    // Some program vars
-    int local_sockfd = 0; // socket used for client to connect to irccd
-    char path[108] = "/tmp/irccd.socket"; //TODO define XDG spec for this
-    local_bind(path, &local_sockfd);
+    // Connection variables
+    char *host_serv = "162.213.39.42";
+    unsigned int port = 6667;
+    Channel *chan_head = NULL;
+    char nick[NICK_LEN] = "iwakura_lain";
     char *myfifo = "/tmp/irccd.fifo";
+    char *path = "/tmp/irccd.socket";
     char actmode = 0;
+
+    // sockets
+    int host_sockfd = 0; //socket used for irccd to connect to host_serv
+    int local_sockfd = 0; // socket used for client to talk to irccd (also forked processes)
+    local_bind(path, &local_sockfd);
     int pid = 0;
 
     // Connection vars
-    char host_serv[CHAN_LEN] = "162.213.39.42";
     char chan_name[CHAN_LEN];
-    unsigned int port = 6667;
-    char nick[CHAN_LEN] = "iwakura_lain";
-    int host_sockfd = 0; //socket used for irccd to connect to host_serv
     
     // Message buffers for sending and recieving 
     char buf[MAX_BUF], out[MAX_BUF], pos[MAX_BUF];
     
-    // For channel linked list
-    Channel *chan_head=NULL;
     // Channel *chan_cur // Will be used to store current node later TODO
     chan_head = (Channel*)malloc(sizeof(Channel));
 
@@ -112,7 +114,7 @@ int main(int argc, char *argv[])
                 break;
             case CONN_MOD:
                 // Test if we're already connected somewhere
-                if (strcmp(host_serv, pos) == 0 && send_msg(host_sockfd, "PING") != -1) {
+                if (strcmp(host_serv, pos) == 0 && ping_host(host_sockfd, "") != -1) {
                     if (DEBUG) printf("Server %s already connected to.\n", nick);
                 } else {
                     strcpy(host_serv, pos);
@@ -120,14 +122,13 @@ int main(int argc, char *argv[])
                         printf("Connection failed\n");
                         exit(1);
                     }
-                    sprintf(out, "NICK %s\r\n", nick);
-                    send_msg(host_sockfd, out);
-                    sprintf(out, "USER %s 8 * :nick\r\n", nick);
-                    send_msg(host_sockfd, out);
                     // Seperate process reads socket
                     pid = spawn_reader(host_sockfd);
                 }
                 break;
+            case PING_MOD:
+                sprintf(out, "NICK %s\r\n", pos);
+                ping_host(host_sockfd, out);
             case DISC_MOD:
                 host_disc(&host_sockfd);
                 break;
@@ -195,9 +196,9 @@ int local_bind(char *path, int *local_sockfd)
     return 0;
 }
 
-int send_msg(int host_sockfd, char *out)
+int send_msg(int sockfd, char *out)
 {/* Send message with debug output to socket */
-    int n = send(host_sockfd, out, strlen(out), 0);
+    int n = send(sockfd, out, strlen(out), 0);
     if (n <= 0) {
         printf("Message sending error\n");
     }
@@ -207,9 +208,9 @@ int send_msg(int host_sockfd, char *out)
     return n;
 }
 
-int read_msg(int host_sockfd, char *recvline)
+int read_msg(int sockfd, char *recvline)
 {/* Read next message from socket, replies to any PING with a PONG */
-    int n = read(host_sockfd, recvline, MAX_BUF);
+    int n = read(sockfd, recvline, MAX_BUF);
     if (n > 0 && DEBUG) {
         printf("IN: %s", recvline);
     }
@@ -217,12 +218,12 @@ int read_msg(int host_sockfd, char *recvline)
     if (n > 0 && strstr(recvline, "PING") != NULL) {
         pos = strstr(recvline, " ")+1;
         sprintf(out, "PONG %s\r\n", pos);
-        send_msg(host_sockfd, out);
+        send_msg(sockfd, out);
     }
     return n;
 }
 
-int spawn_reader(int host_sockfd)
+int spawn_reader(int sockfd)
 {/* Fork process to constantly read from socket */
     int timer = 0;
     int pid = fork(); 
@@ -230,7 +231,7 @@ int spawn_reader(int host_sockfd)
     if (pid == 0) {
         while(1) {
             memset(&recvline, 0, sizeof(recvline));
-            if (read_msg(host_sockfd, recvline) <= 0) {
+            if (read_msg(sockfd, recvline) <= 0) {
                 timer += 1;
                 sleep(1);
                 if (DEBUG) {
@@ -282,7 +283,7 @@ int rm_chan(Channel *head, char *chan_name)
         } else {
             garbage = tmp->next; 
             tmp->next = tmp->next->next;
-            if (DEBUG) printf("Channel %s removed\n", garbage->name);
+            if (DEBUG) printf("UNLINKED: %s\n", garbage->name);
             free(garbage->name);
             free(garbage);
             return 0;
@@ -310,6 +311,22 @@ int list_chan(Channel *head, char *out)
         return 1;
     }
     return 0;
+}
+
+int ping_host(int sockfd, char *msg)
+{/* Sens a ping message to a socket */
+    char out[sizeof(msg)];
+    sprintf(out, "PING %s\r\n", msg);
+    return send_msg(sockfd, out);
+}
+
+int login_host(int sockfd, char *nick, char *realname) 
+{
+    char out[MAX_BUF];
+    sprintf(out, "NICK %s\r\n", nick);
+    send_msg(sockfd, out);
+    sprintf(out, "USER %s 8 * :nick\r\n", nick);
+    return send_msg(sockfd, out);
 }
 
 void kill_child(int pid, int ecode)
