@@ -7,4 +7,5 @@ all:
 	make irccd
 
 test:
+	./tests/connect.sh
 
