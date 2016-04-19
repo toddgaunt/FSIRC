@@ -114,8 +114,8 @@ int main(int argc, char *argv[])
                 break;
             case CONN_MOD:
                 // Test if we're already connected somewhere
-                if (strcmp(host_serv, pos) == 0 && ping_host(host_sockfd) != -1) {
-                    if (DEBUG) printf("Server %s already connected to.\n", nick);
+                if (strcmp(host_serv, pos) == 0 && send_msg(host_sockfd, "PING\r\n") != -1) {//ping_host(host_sockfd, pos) != -1) {
+                    if (DEBUG) printf("Server %s already connected to.\n", host_serv);
                 } else {
                     strcpy(host_serv, pos);
                     if (host_conn(host_serv, port, &host_sockfd) != 0) {
@@ -131,7 +131,7 @@ int main(int argc, char *argv[])
                 }
                 break;
             case PING_MOD:
-                ping_host(host_sockfd);
+                ping_host(host_sockfd, pos);
                 break;
             case DISC_MOD:
                 host_disc(&host_sockfd);
@@ -299,35 +299,33 @@ int rm_chan(Channel *head, char *chan_name)
     return 1;
 }
 
-int list_chan(Channel *head, char *out)
+int list_chan(char *buf, Channel *head)
 {/* Pretty Prints all channels client is connected to 
   * Later should write channels to a log file */
     Channel *node = head;
-    char *tmp;
-    tmp = out;
     if (node != NULL) {
-        sprintf(out, "%s->", node->name);
+        sprintf(buf, "%s->", node->name);
         while (node->next != NULL) {
             node = node->next;
-            sprintf(out, "%s%s->", tmp, node->name);
+            sprintf(buf, "%s%s->", buf, node->name);
         }
-        sprintf(out, "%s\n", tmp);
+        sprintf(buf, "%s\n", buf);
         return 1;
     }
     return 0;
 }
 
-int ping_host(int sockfd)
+int ping_host(int sockfd, char *msg)
 {/* Sens a ping message to a socket */
-    return send_msg(sockfd, "PING\r\n");
+    char out[MAX_BUF];
+    sprintf(out, "PING %s\r\n", msg);
+    return send_msg(sockfd, out);
 }
 
 int login_host(int sockfd, char *nick, char *realname) 
 {
     char out[MAX_BUF];
-    sprintf(out, "NICK %s\r\n", nick);
-    send_msg(sockfd, out);
-    sprintf(out, "USER %s 8 * :nick\r\n", nick);
+    sprintf(out, "NICK %s\r\nUSER %s 8 * :nick\r\n", nick, nick);
     send_msg(sockfd, out);
     return 0;
 }
