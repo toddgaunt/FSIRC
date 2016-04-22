@@ -72,8 +72,7 @@ int main(int argc, char *argv[])
 
         switch (actmode) {
             case JOIN_MOD:
-                if (pos[0] != '#' && DEBUG) {
-                    printf("%s is not a valid channel\n", chan_name);
+                if (channel_name_check(pos)) {
                     break;
                 }
                 strcpy(chan_name, pos);
@@ -84,10 +83,6 @@ int main(int argc, char *argv[])
                 }
                 break;
             case PART_MOD:
-                if (pos[0] != '#' && DEBUG) {
-                    printf("%s is not a valid channel\n", chan_name);
-                    break;
-                }
                 strcpy(chan_name, pos);
                 sprintf(out, "PART %s\r\n", chan_name);
 
@@ -144,8 +139,8 @@ int main(int argc, char *argv[])
                 sleep(1);
         }
     }
-    printf("Failed to fork.\n");
-    kill_child(pid, 1);
+    printf("Failed to fork\n");
+    kill_child(pid);
     exit(1);
 }
 
@@ -316,7 +311,7 @@ int list_chan(char *buf, Channel *head)
 }
 
 int ping_host(int sockfd, char *msg)
-{/* Sens a ping message to a socket */
+{/* Sends a ping message to a socket */
     char out[MAX_BUF];
     sprintf(out, "PING %s\r\n", msg);
     return send_msg(sockfd, out);
@@ -330,7 +325,16 @@ int login_host(int sockfd, char *nick, char *realname)
     return 0;
 }
 
-void kill_child(int pid, int ecode)
+int channel_name_check(char *name) 
+{/* Performs checks to make sure the string is a channel name */
+    if (pos[0] != '#' && DEBUG) {
+        printf("%s is not a valid channel\n", chan_name);
+        return 1;
+    }
+    return 0;
+}
+
+void kill_child(int pid)
 {/* Clean up child processes */
     kill(pid, SIGTERM);
 }
