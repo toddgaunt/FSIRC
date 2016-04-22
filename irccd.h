@@ -62,7 +62,8 @@ int ping_host(int sockfd, char *msg);
 int login_host(int sockfd, char *nick, char *realname); 
 
 /* Utility functions */
+int channel_name_check(char *name);
 int test_conn(int sockfd);
-void kill_child(int pid, int ecode);
+void kill_child(int pid);
 
 #endif

@@ -132,7 +132,7 @@ int main(int argc, char *argv[])
                 host_disc(&host_sockfd);
                 break;
             case QUIT_MOD:
-                kill_child(pid, 0);
+                kill_child(pid);
                 exit(0);
             default:
                 printf("NO COMMAND\n");
@@ -327,8 +327,8 @@ int login_host(int sockfd, char *nick, char *realname)
 
 int channel_name_check(char *name) 
 {/* Performs checks to make sure the string is a channel name */
-    if (pos[0] != '#' && DEBUG) {
-        printf("%s is not a valid channel\n", chan_name);
+    if (name[0] != '#' && DEBUG) {
+        printf("%s is not a valid channel\n", name);
         return 1;
     }
     return 0;
