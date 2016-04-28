@@ -43,7 +43,9 @@ int read_msg(int sockfd, char *recvline)
 {/* Read next message from socket, replies to any PING with a PONG */
     char *pos, out[MAX_BUF];
     int n = read(sockfd, recvline, MAX_BUF);
-    fprintf(stdout, "irccd: in: %s", recvline);
+    if (n > 0) {
+        fprintf(stdout, "irccd: in: %s", recvline);
+    }
     memset(&out, 0, sizeof(out));
     if (n > 0 && strstr(recvline, "PING") != NULL) {
         pos = strstr(recvline, " ")+1;
