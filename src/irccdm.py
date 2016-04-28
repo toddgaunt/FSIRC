@@ -71,7 +71,7 @@ def cmd_write():
 
     parser.add_argument('command', metavar='command',
                         type = str, default = '',
-                        help = 'Subcommand to be run [message(msg)]')
+                        help = 'Subcommand to be run [message | msg]')
 
     parser.add_argument('-m', '--message', metavar = 'message',
                         type = str,
@@ -96,7 +96,7 @@ def cmd_host():
 
     parser.add_argument('command', metavar='command',
                         type = str, default = '',
-                        help = 'Subcommand to be run')
+                        help = 'Subcommand to be run [add], [remove], [connect], [disconnect], [ping]')
 
     parser.add_argument('-H', '--host', metavar='host',
                         type = str,
@@ -130,7 +130,7 @@ def cmd_channel():
 
     parser.add_argument('command', metavar='command',
                         type = str, default = '',
-                        help = 'Subcommand to be run')
+                        help = 'Subcommand to be run [add], [remove], [list], [join], [part]')
 
     parser.add_argument('-c', '--channel', metavar='channel',
                         type = str,

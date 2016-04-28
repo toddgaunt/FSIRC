@@ -7,6 +7,18 @@ irccdm - irc client daemon messenger
 
 .SH COMMANDS (HIGH-LEVEL)
 
+.B irccdm-start
+.RS 
+Start an instantance of the daemon using your configuration file
+.RE
+.PP
+
+.B irccdm-quit
+.RS 
+Stop the running daemon
+.RE
+.PP
+
 .B irccdm-write
 .RS 
 Invoke an operation that sends text to the irc host
@@ -20,20 +32,20 @@ Operate commands that interact with remote irc host
 
 .B irccdm-channel
 .RS 
-Operate commands that interact with channels on remote irc host
+Operate commands that interact with channels on remote irc host. For the operations that require text input with a flag, if the flag is ommited it will instead open your $EDITOR (defaults to vi if $EDITOR not set) for you to write the message in.
 .RE
 .PP
 
 .SH COMMANDS (SUB-COMMANDS)
-.B irccdm-write-message
+.B irccdm-write-message [\-m \fIMESSAGE\fR]
 .RS 
-Send Privmsg to irc host
+Send Privmsg to irc host. 'message' may be abbreviated to 'msg'.
 .RE
 .PP
 
-.B irccdm-host-connect
+.B irccdm-host-connect [\-H \fIHOST\fR]
 .RS 
-Connect to remote irc host
+Connect to remote irc host.
 .RE
 .PP
 
