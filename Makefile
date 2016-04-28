@@ -1,11 +1,16 @@
 CFLAGS=-Wall -g
 
 clean:
-	rm -f irccd
+	rm -rf build/
 
 all:
-	make irccd
+	make src/irccd
+	mkdir build
+	mv src/irccd build
 
 test:
 	./tests/connect.sh
+
+install:
+
 

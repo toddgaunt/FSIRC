@@ -12,8 +12,6 @@ import sys
 fifo_file = "/tmp/irccd.fifo"
 
 def main():
-    conf = read_config('config.json', 'default')
-
     parser = argparse.ArgumentParser(description = "Messaging client for irccd  \
                                                     The commands are:   \
                                                         write   \

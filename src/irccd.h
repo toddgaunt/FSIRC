@@ -40,30 +40,4 @@ struct Conn_Info {
     int sockfd; //socket
 };
 
-/* internal functions */
-int spawn_reader(int sockfd);
-
-/* The backbone of most other functions here */
-int send_msg(int sockfd, char *out);
-int read_msg(int sockfd, char *recvline);
-
-/* The commands sent to this irc daemon */
-int local_bind(char *path, int *sockfd);
-
-/* irc host functions */
-int host_conn(char *server, unsigned int port, int *host_sockfd);
-int host_disc(int *host_sockfd);
-
-/* actcode functions */
-int add_chan(Channel *head, char *name);
-int rm_chan(Channel *head, char *name);
-int list_chan(char *out, Channel *head);
-int ping_host(int sockfd, char *msg);
-int login_host(int sockfd, char *nick, char *realname); 
-
-/* Utility functions */
-int channel_name_check(char *name);
-int test_conn(int sockfd);
-void kill_child(int pid);
-
 #endif
