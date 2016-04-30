@@ -10,6 +10,7 @@ import sys
 
 # globals
 fifo_file = "/tmp/irccd.fifo"
+config_file = "profiles.json"
 
 def main():
     parser = argparse.ArgumentParser(description = "Messaging client for irccd  \
@@ -92,11 +93,14 @@ def cmd_write():
         invalid_cmd()
 
 def cmd_host():
+    global config_file
+    conf = read_config(config_file, "default")
     parser = argparse.ArgumentParser(description = "Manage connection to host")
 
     parser.add_argument('command', metavar='command',
                         type = str, default = '',
-                        help = 'Subcommand to be run [add], [remove], [connect], [disconnect], [ping]')
+                        help = 'Subcommand to be run [add], [remove], \
+                                [connect], [disconnect], [ping]')
 
     parser.add_argument('-H', '--host', metavar='host',
                         type = str,
@@ -108,7 +112,7 @@ def cmd_host():
     if args.host:
         host = args.host
     else:
-        host = ""
+        host = conf["default_host"]
 
     if command == "add":
         #TODO adds host to hostdict
@@ -126,6 +130,8 @@ def cmd_host():
         invalid_cmd()
 
 def cmd_channel():
+    global config_file
+    conf = read_config(config_file, "default")
     parser = argparse.ArgumentParser(description = "Manage irc channels")
 
     parser.add_argument('command', metavar='command',
@@ -133,6 +139,10 @@ def cmd_channel():
                         help = 'Subcommand to be run [add], [remove], [list], [join], [part]')
 
     parser.add_argument('-c', '--channel', metavar='channel',
+                        type = str,
+                        help = 'Target Channel')
+
+    parser.add_argument('-s', '--saved-channel', metavar='channel',
                         type = str,
                         help = 'Target Channel')
 
@@ -144,6 +154,9 @@ def cmd_channel():
     else:
         channel = ""
 
+    if isinstance(channel, int):
+        if channel >= 0 and channel < len(conf["saved_channels"]):
+            channel = conf["saved_channels"][channel]
     if command == "add":
         #TODO
         pass
