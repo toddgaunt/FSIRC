@@ -32,9 +32,9 @@ int send_msg(int sockfd, char *out)
 {/* Send message with debug output to socket */
     int n = send(sockfd, out, strlen(out), 0);
     if (n <= 0) {
-        fprintf(stderr, "irccd: error: message sending error\n");
+        fprintf(stderr, "%s: error: message sending error\n", PRGM_NAME);
     } else {
-        fprintf(stderr, "irccd: out: %s", out);
+        fprintf(stderr, "%s: out: %s", PRGM_NAME, out);
     }
     return n;
 }
@@ -44,7 +44,7 @@ int read_msg(int sockfd, char *recvline)
     char *pos, out[MAX_BUF];
     int n = read(sockfd, recvline, MAX_BUF);
     if (n > 0) {
-        fprintf(stdout, "irccd: in: %s", recvline);
+        fprintf(stdout, "%s: in: %s", PRGM_NAME, recvline);
     }
     memset(&out, 0, sizeof(out));
     if (n > 0 && strstr(recvline, "PING") != NULL) {
@@ -66,11 +66,11 @@ int host_conn(char *host, unsigned int port, int *host_sockfd)
     // modifies the host_sockfd for the rest of main() to use
     *host_sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (*host_sockfd < 0) {
-        fprintf(stdout, "irccd: socket creation error\n");
+        fprintf(stdout, "%s: socket creation error\n", PRGM_NAME);
         return 1;
     }
     if (inet_pton(AF_INET, host, &servaddr.sin_addr) <= 0) {
-        fprintf(stderr, "irccd: error: invalid network address error\n");
+        fprintf(stderr, "%s: error: invalid network address error\n", PRGM_NAME);
         return 1;
     }
     // points sockaddr pointer to servaddr because connect takes sockaddr structs
@@ -97,7 +97,7 @@ int local_bind(char *path, int *local_sockfd)
     // modifies local socket for unix communication 
     *local_sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (*local_sockfd < 0) {
-        fprintf(stderr, "irccd: error: socket creation error\n");
+        fprintf(stderr, "%s: error: socket creation error\n", PRGM_NAME);
         return 1;
     }
     if (bind(*local_sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
@@ -117,7 +117,7 @@ int spawn_reader(int sockfd)
             if (read_msg(sockfd, recvline) <= 0) {
                 timer += 1;
                 sleep(1);
-                fprintf(stderr, "irccd: reader error (%d)\n", timer);
+                fprintf(stderr, "%s: reader error (%d)\n", PRGM_NAME, timer);
             } else { 
                 timer = 0;
             }
@@ -143,13 +143,13 @@ int add_chan(Channel *head, char *chan_name)
     tmp = tmp->next; 
 
     if (tmp == 0) {
-        fprintf(stderr, "irccd: error: out of memory\n");
+        fprintf(stderr, "%s: error: out of memory\n", PRGM_NAME);
         return -1;
     }
     tmp->name = strdup(chan_name);
     tmp->next = NULL;
 
-    fprintf(stdout, "irccd: channel added: %s\n",tmp->name);
+    fprintf(stdout, "%s: channel added: %s\n",PRGM_NAME, tmp->name);
     return 0;
 }
 
@@ -164,17 +164,18 @@ int rm_chan(Channel *head, char *chan_name)
             garbage = tmp->next; 
             tmp->next = tmp->next->next;
 
-            fprintf(stdout, "irccd: channel removed: %s\n", garbage->name);
+            fprintf(stdout, "%s: channel removed: %s\n", PRGM_NAME, garbage->name);
 
             free(garbage->name);
             free(garbage);
             return 0;
         }
     }
-    fprintf(stdout, "irccd: channel %s not found in list\n", chan_name);
+    fprintf(stdout, "%s: channel %s not found in list\n", PRGM_NAME, chan_name);
     return 1;
 }
 
+// Currently unused
 int list_chan(char *buf, Channel *head)
 {/* Pretty Prints all channels client is connected to 
   * Later should write channels to a log file */
@@ -209,7 +210,7 @@ int login_host(int sockfd, char *nick, char *realname)
 int channel_name_check(char *name) 
 {/* Performs checks to make sure the string is a channel name */
     if (name[0] != '#' && DEBUG) {
-        fprintf(stdout, "irccd: %s is not a valid channel\n", name);
+        fprintf(stdout, "%s: %s is not a valid channel\n", PRGM_NAME, name);
         return 1;
     }
     return 0;
@@ -249,7 +250,7 @@ int main(int argc, char *argv[])
         read(fd, buf, sizeof(buf));
         actmode = buf[0];
 
-        fprintf(stdout, "irccd: mode: %c\n", actmode);
+        fprintf(stdout, "%s: mode: %c\n", PRGM_NAME, actmode);
 
         for (i = 0; i < sizeof(buf)-1; i++) {
             pos[i] = buf[i+1]; // Stores the message seperately from actcode
@@ -286,7 +287,7 @@ int main(int argc, char *argv[])
                 break;
             case NICK_MOD:
                 if (strcmp(nick, pos) == 0) {
-                    fprintf(stdout, "irccd: nickname %s already in use by this client\n", nick);
+                    fprintf(stdout, "%s: nickname %s already in use by this client\n", PRGM_NAME, nick);
                     break;
                 } 
                 strcpy(nick, pos);
@@ -296,11 +297,11 @@ int main(int argc, char *argv[])
             case CONN_MOD:
                 // Test if we're already connected somewhere
                 if (strcmp(host_serv, pos) == 0 && send_msg(host_sockfd, "PING\r\n") != -1) {//ping_host(host_sockfd, pos) != -1) {
-                    fprintf(stdout, "irccd: server %s already connected to.\n", host_serv);
+                    fprintf(stdout, "%s: server %s already connected to.\n", PRGM_NAME, host_serv);
                 } else {
                     strcpy(host_serv, pos);
                     if (host_conn(host_serv, port, &host_sockfd) != 0) {
-                        fprintf(stderr, "irccd: error: connection failed\n");
+                        fprintf(stderr, "%s: error: connection failed\n", PRGM_NAME);
                         exit(1);
                     }
                     sprintf(out, "NICK %s\r\n", nick);

@@ -21,6 +21,7 @@
 #define QUIT_MOD 'Q' // quit mode
 
 #define DEBUG 1 // toggles debug
+#define PRGM_NAME "irccd"
 
 /* linked list for all Channels */
 typedef struct Channel Channel;
