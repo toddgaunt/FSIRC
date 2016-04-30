@@ -111,6 +111,8 @@ def cmd_host():
 
     if args.host:
         host = args.host
+        if host in conf["saved_hosts"]:
+            host = conf["saved_hosts"][host]
     else:
         host = conf["default_host"]
 
@@ -157,6 +159,7 @@ def cmd_channel():
     if isinstance(channel, int):
         if channel >= 0 and channel < len(conf["saved_channels"]):
             channel = conf["saved_channels"][channel]
+
     if command == "add":
         #TODO
         pass
