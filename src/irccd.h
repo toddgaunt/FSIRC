@@ -5,7 +5,7 @@
 #define MAX_BUF 4096
 #define MAX_LINE 1024
 #define CHAN_LEN 128
-#define NICK_LEN 32
+#define NICK_LEN 16
 /* Command definitions, might change to pure ints */
 #define CONN_MOD 'c' // connect to a host
 #define DISC_MOD 'd' // disconnect from a host
@@ -26,19 +26,19 @@
 /* linked list for all Channels */
 typedef struct Channel Channel;
 struct Channel {
-    char *name;
-    struct Channel *next;
+	char *name;
+	struct Channel *next;
 };
 
 typedef struct Conn_Info Conn_Info;
 struct Conn_Info {
-    /* Connection info */
-    char host[CHAN_LEN];
-    char channel[CHAN_LEN];
-    unsigned int port;
-    char nick[CHAN_LEN];
-    char realname[CHAN_LEN];
-    int sockfd; //socket
+	/* Connection info */
+	char host[CHAN_LEN];
+	char channel[CHAN_LEN];
+	unsigned int port;
+	char nick[CHAN_LEN];
+	char realname[CHAN_LEN];
+	int sockfd; //socket
 };
 
 #endif
