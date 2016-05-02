@@ -24,11 +24,10 @@
 #define PRGM_NAME "irccd"
 
 /* linked list for all Channels */
-typedef struct Channel Channel;
-struct Channel {
+typedef struct Channel{
 	char *name;
 	struct Channel *next;
-};
+} Channel;
 
 typedef struct Conn_Info Conn_Info;
 struct Conn_Info {

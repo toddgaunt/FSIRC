@@ -145,7 +145,6 @@ int add_chan(Channel *head, char *chan_name)
 	}
 	tmp->next = (Channel *)malloc(sizeof(Channel)); 
 	tmp = tmp->next; 
-
 	if (tmp == 0) {
 		fprintf(stderr, "%s: error: out of memory\n", PRGM_NAME);
 		return -1;
@@ -226,21 +225,19 @@ int main(int argc, char *argv[])
 	Channel *chan_head = (Channel*)malloc(sizeof(Channel)); // head of the list
 	Channel *current_channel = NULL; // used to store last visted node
     char chan_name[CHAN_LEN];
-
 	// sockets
 	int host_sockfd = 0; //socket used for irccd to connect to host_serv
 	int local_sockfd = 0; // socket used for client to talk to irccd (also forked processes)
 	local_bind(mypath, &local_sockfd);
-
 	// Defines the action to be performed
 	char actmode = 0;
 	int pid = 0;
-	
 	// Message buffers for sending and recieving 
 	char buf[MAX_BUF], out[MAX_BUF], pos[MAX_BUF];
+	// File descriptor and for loop counter
+	int fd, i;
 
 	mkfifo(myfifo, 0666);
-	int fd, i;
 	while(1) {
 		fd = open(myfifo, O_RDONLY); 
 		memset(&buf, 0, sizeof(buf));
@@ -255,73 +252,72 @@ int main(int argc, char *argv[])
 		close(fd);
 
 		switch (actmode) {
-			case JOIN_MOD:
-				if (chan_name_check(pos)) {
-					break;
-				}
-				strcpy(chan_name, pos);
-				sprintf(out, "JOIN %s\r\n", chan_name);
+		case JOIN_MOD:
+			if (chan_name_check(pos)) {
+				break;
+			}
+			strcpy(chan_name, pos);
+			sprintf(out, "JOIN %s\r\n", chan_name);
+			if (send_msg(host_sockfd, out) > 0) {
+				add_chan(chan_head, pos);
+			}
+			break;
+		case PART_MOD:
+			strcpy(chan_name, pos);
+			sprintf(out, "PART %s\r\n", chan_name);
 
-				if (send_msg(host_sockfd, out) > 0) {
-					add_chan(chan_head, pos);
+			if (send_msg(host_sockfd, out) > 0) {
+				rm_chan(chan_head, chan_name);
+			}
+			break;
+		case LIST_MOD:
+			sprintf(out, "LIST %s\r\n", pos);
+			send_msg(host_sockfd, out);
+			break;
+		case WRITE_MOD:
+			sprintf(out, "PRIVMSG %s :%s\r\n", chan_name, pos);
+			send_msg(host_sockfd, out);
+			break;
+		case NICK_MOD:
+			if (strcmp(nick, pos) == 0) {
+				fprintf(stdout, "%s: nickname %s already in use "
+								"by this client\n", PRGM_NAME, nick);
+				break;
+			} 
+			strcpy(nick, pos);
+			sprintf(out, "NICK %s\r\n", nick);
+			send_msg(host_sockfd, out);
+			break;
+		case CONN_MOD:
+			// Test if we're already connected somewhere
+			if (strcmp(host_serv, pos) == 0 && send_msg(host_sockfd, "PING\r\n") != -1) {
+				fprintf(stdout, "%s: server %s already connected to.\n", PRGM_NAME, host_serv);
+			} else {
+				strcpy(host_serv, pos);
+				if (host_conn(host_serv, port, &host_sockfd) != 0) {
+					fprintf(stderr, "%s: error: connection failed\n", PRGM_NAME);
+					exit(1);
 				}
-				break;
-			case PART_MOD:
-				strcpy(chan_name, pos);
-				sprintf(out, "PART %s\r\n", chan_name);
-
-				if (send_msg(host_sockfd, out) > 0) {
-					rm_chan(chan_head, chan_name);
-				}
-				break;
-			case LIST_MOD:
-				sprintf(out, "LIST %s\r\n", pos);
-				send_msg(host_sockfd, out);
-				break;
-			case WRITE_MOD:
-				sprintf(out, "PRIVMSG %s :%s\r\n", chan_name, pos);
-				send_msg(host_sockfd, out);
-				break;
-			case NICK_MOD:
-				if (strcmp(nick, pos) == 0) {
-					fprintf(stdout, "%s: nickname %s already in use "
-									"by this client\n", PRGM_NAME, nick);
-					break;
-				} 
-				strcpy(nick, pos);
 				sprintf(out, "NICK %s\r\n", nick);
 				send_msg(host_sockfd, out);
-				break;
-			case CONN_MOD:
-				// Test if we're already connected somewhere
-				if (strcmp(host_serv, pos) == 0 && send_msg(host_sockfd, "PING\r\n") != -1) {
-					fprintf(stdout, "%s: server %s already connected to.\n", PRGM_NAME, host_serv);
-				} else {
-					strcpy(host_serv, pos);
-					if (host_conn(host_serv, port, &host_sockfd) != 0) {
-						fprintf(stderr, "%s: error: connection failed\n", PRGM_NAME);
-						exit(1);
-					}
-					sprintf(out, "NICK %s\r\n", nick);
-					send_msg(host_sockfd, out);
-					sprintf(out, "USER %s 8 * :nick\r\n", nick);
-					send_msg(host_sockfd, out);
-					// Seperate process reads socket
-					pid = spawn_reader(host_sockfd);
-				}
-				break;
-			case PING_MOD:
-				ping_host(host_sockfd, pos);
-				break;
-			case DISC_MOD:
-				host_disc(&host_sockfd);
-				break;
-			case QUIT_MOD:
-				kill(pid, SIGTERM);
-				exit(0);
-			default:
-				printf("NO COMMAND\n");
-				sleep(1);
+				sprintf(out, "USER %s 8 * :nick\r\n", nick);
+				send_msg(host_sockfd, out);
+				// Seperate process reads socket
+				pid = spawn_reader(host_sockfd);
+			}
+			break;
+		case PING_MOD:
+			ping_host(host_sockfd, pos);
+			break;
+		case DISC_MOD:
+			host_disc(&host_sockfd);
+			break;
+		case QUIT_MOD:
+			kill(pid, SIGTERM);
+			exit(0);
+		default:
+			printf("NO COMMAND\n");
+			sleep(1);
 		}
 	}
 	printf("Failed to fork\n");
