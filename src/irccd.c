@@ -11,6 +11,7 @@
  * TODO conform to XDG spec, ~/.config/irccd/socket, ~/.config/irccd/log etc..
  */
 
+#include <limits.h>
 #include <stdio.h> 
 #include <stdlib.h>
 #include <string.h>
@@ -28,29 +29,29 @@
 /* - - - - - - - */
 #include "irccd.h"
 
-static char *myfifo = "/tmp/irccd.fifo";
-static char *mypath = "/tmp/irccd.socket";
-static char nick[NICK_LEN] = "iwakura_lain";
-static char host_serv[CHAN_LEN] = "162.213.39.42";
-static unsigned int port = 6667;
+static void usage()
+{
+	fprintf(stderr, "irccd - irc client daemon - " VERSION "\n"
+	"usage: irccd []\n");
+}
 
 int send_msg(int sockfd, char *out)
 {/* Send message with debug output to socket */
 	int n = send(sockfd, out, strlen(out), 0);
 	if (n <= 0) {
-		fprintf(stderr, "%s: error: message sending error\n", PRGM_NAME);
+		fprintf(stderr, PRGNAME": error: message sending error\n");
 	} else {
-		fprintf(stderr, "%s: out: %s", PRGM_NAME, out);
+		fprintf(stderr, PRGNAME": out: %s", out);
 	}
 	return n;
 }
 
 int read_msg(int sockfd, char *recvline)
 {/* Read next message from socket, replies to any PING with a PONG */
-	char *pos, out[MAX_BUF];
-	int n = read(sockfd, recvline, MAX_BUF);
+	char *pos, out[PIPE_BUF];
+	int n = read(sockfd, recvline, PIPE_BUF);
 	if (n > 0) {
-		fprintf(stdout, "%s: in: %s", PRGM_NAME, recvline);
+		fprintf(stdout, PRGNAME": in: %s", recvline);
 	}
 	memset(&out, 0, sizeof(out));
 	if (n > 0 && strstr(recvline, "PING") != NULL) {
@@ -61,24 +62,24 @@ int read_msg(int sockfd, char *recvline)
 	return n;
 }
 
-int host_conn(char *host, unsigned int port, int *host_sockfd)
+int sock_conn(char *host, int *host_sockfd)
 {/* Construct socket at host_sockfd, then connect */
 	struct sockaddr_in servaddr; 
 	memset(&servaddr, 0, sizeof(servaddr));
 	servaddr.sin_family = AF_INET;
-	servaddr.sin_port = htons(port);
+	servaddr.sin_port = htons(IRCCD_PORT);
 	
-	// modifies the host_sockfd for the rest of main() to use
+	// Modifies the host_sockfd for the rest of main() to use
 	*host_sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	if (*host_sockfd < 0) {
-		fprintf(stdout, "%s: socket creation error\n", PRGM_NAME);
+		fprintf(stdout, PRGNAME": socket creation error\n");
 		return 1;
 	}
 	if (inet_pton(AF_INET, host, &servaddr.sin_addr) <= 0) {
-		fprintf(stderr, "%s: error: invalid network address error\n", PRGM_NAME);
+		fprintf(stderr, PRGNAME": error: invalid network address error\n");
 		return 1;
 	}
-	// points sockaddr pointer to servaddr because connect takes sockaddr structs
+	// Points sockaddr pointer to servaddr because connect takes sockaddr structs
 	if (connect(*host_sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
 		return 1;
 	}
@@ -87,12 +88,12 @@ int host_conn(char *host, unsigned int port, int *host_sockfd)
 }
 
 int host_disc(int *host_sockfd)
-{/* Disconnect socket and then remove it */
+{/* Disconnects from irc gracefully, then close the socket. */
 	send_msg(*host_sockfd, "QUIT\r\n");
 	return shutdown(*host_sockfd, SHUT_RDWR);
 }
 
-int local_bind(char *path, int *local_sockfd)
+int bind_sock(char *path, int *local_sockfd)
 {/* Contruct a unix socket for inter-process communication, then connect */
 	struct sockaddr_un servaddr; 
 	memset(&servaddr, 0, sizeof(servaddr));
@@ -102,7 +103,7 @@ int local_bind(char *path, int *local_sockfd)
 	// modifies local socket for unix communication 
 	*local_sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
 	if (*local_sockfd < 0) {
-		fprintf(stderr, "%s: error: socket creation error\n", PRGM_NAME);
+		fprintf(stderr, PRGNAME": error: socket creation error\n");
 		return 1;
 	}
 	if (bind(*local_sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
@@ -115,19 +116,19 @@ int spawn_reader(int sockfd)
 {/* Fork process to constantly read from irc socket */
 	int timer = 0;
 	int pid = fork(); 
-	char recvline[MAX_BUF];
+	char recvline[PIPE_BUF];
 	if (pid == 0) {
 		while(1) {
-			memset(&recvline, 0, sizeof(recvline));
+			memset(&recvline, 0, PIPE_BUF);
 			if (read_msg(sockfd, recvline) <= 0) {
 				timer += 1;
 				sleep(1);
-				fprintf(stderr, "%s: reader error (%d)\n", PRGM_NAME, timer);
+				fprintf(stderr, PRGNAME": reader error (%d)\n", timer);
 			} else { 
 				timer = 0;
 			}
-			if (timer >= 10) {
-				exit(1); // kill the reader if socket connection fails after 10 tries
+			if (timer >= PING_TIMEOUT) {
+				exit(1); // kill the reader if read attempt fails after 10 tries
 			}
 		}
 	}
@@ -146,13 +147,13 @@ int add_chan(Channel *head, char *chan_name)
 	tmp->next = (Channel *)malloc(sizeof(Channel)); 
 	tmp = tmp->next; 
 	if (tmp == 0) {
-		fprintf(stderr, "%s: error: out of memory\n", PRGM_NAME);
+		fprintf(stderr, PRGNAME": error: out of memory\n");
 		return -1;
 	}
 	tmp->name = strdup(chan_name);
 	tmp->next = NULL;
 
-	fprintf(stdout, "%s: channel added: %s\n",PRGM_NAME, tmp->name);
+	fprintf(stdout, PRGNAME": channel added: %s\n", tmp->name);
 	return 0;
 }
 
@@ -167,14 +168,14 @@ int rm_chan(Channel *head, char *chan_name)
 			garbage = tmp->next; 
 			tmp->next = tmp->next->next;
 
-			fprintf(stdout, "%s: channel removed: %s\n", PRGM_NAME, garbage->name);
+			fprintf(stdout, PRGNAME": channel removed: %s\n", garbage->name);
 
 			free(garbage->name);
 			free(garbage);
 			return 0;
 		}
 	}
-	fprintf(stdout, "%s: channel %s not found in list\n", PRGM_NAME, chan_name);
+	fprintf(stdout, PRGNAME": channel %s not found in list\n", chan_name);
 	return 1;
 }
 
@@ -197,14 +198,14 @@ int printchan(char *buf, Channel *head)
 
 int ping_host(int sockfd, char *msg)
 {/* Sends a ping message to a socket */
-	char out[MAX_BUF];
+	char out[PIPE_BUF];
 	sprintf(out, "PING %s\r\n", msg);
 	return send_msg(sockfd, out);
 }
 
 int sendlogin(int sockfd, char *nick, char *realname) 
 {/* Sends out login information to the host */
-	char out[MAX_BUF];
+	char out[PIPE_BUF];
 	sprintf(out, "NICK %s\r\nUSER %s 8 * :nick\r\n", nick, nick);
 	send_msg(sockfd, out);
 	return 0;
@@ -213,7 +214,7 @@ int sendlogin(int sockfd, char *nick, char *realname)
 int chan_name_check(char *chan_name) 
 {/* Performs checks to make sure the string is a channel name */
 	if (chan_name[0] != '#' || sizeof(chan_name) > CHAN_LEN) {
-		fprintf(stdout, "%s: %s is not a valid channel\n", PRGM_NAME, chan_name);
+		fprintf(stdout, "PRGRM_NAME: %s is not a valid channel\n", chan_name);
 		return 1;
 	}
 	return 0;
@@ -221,30 +222,35 @@ int chan_name_check(char *chan_name)
 
 int main(int argc, char *argv[]) 
 {
+	usage();
+	// Paths to sockets and fifos
+	char *nick = "iwakura_lain";
+	char *fifopath = "/tmp/irccd.fifo";
+	char *sockpath = "/tmp/irccd.socket";
+	// User info
+	int host_sockfd = 0; // fd used for internet socket
+	char host_serv[IP_LEN] = "162.213.39.42";
 	// Channel list pointers
-	Channel *chan_head = (Channel*)malloc(sizeof(Channel)); // head of the list
-	Channel *current_channel = NULL; // used to store last visted node
+	Channel *channels = (Channel*)malloc(sizeof(Channel)); // List of channels
     char chan_name[CHAN_LEN];
-	// sockets
-	int host_sockfd = 0; //socket used for irccd to connect to host_serv
+
 	int local_sockfd = 0; // socket used for client to talk to irccd (also forked processes)
-	local_bind(mypath, &local_sockfd);
 	// Defines the action to be performed
 	char actmode = 0;
 	int pid = 0;
 	// Message buffers for sending and recieving 
-	char buf[MAX_BUF], out[MAX_BUF], pos[MAX_BUF];
+	char buf[PIPE_BUF], out[PIPE_BUF], pos[PIPE_BUF];
 	// File descriptor and for loop counter
 	int fd, i;
 
-	mkfifo(myfifo, 0666);
+	mkfifo(fifopath, 0666);
 	while(1) {
-		fd = open(myfifo, O_RDONLY); 
+		fd = open(fifopath, O_RDONLY); 
 		memset(&buf, 0, sizeof(buf));
 		read(fd, buf, sizeof(buf));
 		actmode = buf[0];
 
-		fprintf(stdout, "%s: mode: %c\n", PRGM_NAME, actmode);
+		fprintf(stdout, PRGNAME": mode: %c\n", actmode);
 
 		for (i = 0; i < sizeof(buf)-1; i++) {
 			pos[i] = buf[i+1]; // Stores the message seperately from actcode
@@ -259,7 +265,7 @@ int main(int argc, char *argv[])
 			strcpy(chan_name, pos);
 			sprintf(out, "JOIN %s\r\n", chan_name);
 			if (send_msg(host_sockfd, out) > 0) {
-				add_chan(chan_head, pos);
+				add_chan(channels, pos);
 			}
 			break;
 		case PART_MOD:
@@ -267,7 +273,7 @@ int main(int argc, char *argv[])
 			sprintf(out, "PART %s\r\n", chan_name);
 
 			if (send_msg(host_sockfd, out) > 0) {
-				rm_chan(chan_head, chan_name);
+				rm_chan(channels, chan_name);
 			}
 			break;
 		case LIST_MOD:
@@ -280,8 +286,8 @@ int main(int argc, char *argv[])
 			break;
 		case NICK_MOD:
 			if (strcmp(nick, pos) == 0) {
-				fprintf(stdout, "%s: nickname %s already in use "
-								"by this client\n", PRGM_NAME, nick);
+				fprintf(stdout, PRGNAME": nickname %s already in use "
+								"by this client\n", nick);
 				break;
 			} 
 			strcpy(nick, pos);
@@ -291,11 +297,11 @@ int main(int argc, char *argv[])
 		case CONN_MOD:
 			// Test if we're already connected somewhere
 			if (strcmp(host_serv, pos) == 0 && send_msg(host_sockfd, "PING\r\n") != -1) {
-				fprintf(stdout, "%s: server %s already connected to.\n", PRGM_NAME, host_serv);
+				fprintf(stdout, PRGNAME": server %s already connected to.\n", host_serv);
 			} else {
 				strcpy(host_serv, pos);
-				if (host_conn(host_serv, port, &host_sockfd) != 0) {
-					fprintf(stderr, "%s: error: connection failed\n", PRGM_NAME);
+				if (sock_conn(host_serv, &host_sockfd) != 0) {
+					fprintf(stderr, PRGNAME": error: connection failed\n");
 					exit(1);
 				}
 				sprintf(out, "NICK %s\r\n", nick);

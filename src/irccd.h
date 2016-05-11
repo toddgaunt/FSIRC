@@ -2,10 +2,13 @@
 #define IRCCD_H_INCLUDED
 
 /* Maximum length of some strings */
-#define MAX_BUF 4096
-#define MAX_LINE 1024
 #define CHAN_LEN 128
+#define IP_LEN 32
 #define NICK_LEN 16
+#define PING_TIMEOUT 300
+#define IRCCD_PORT 6667
+#define VERSION "1.0"
+
 /* Command definitions, might change to pure ints */
 #define CONN_MOD 'c' // connect to a host
 #define DISC_MOD 'd' // disconnect from a host
@@ -21,7 +24,7 @@
 #define QUIT_MOD 'Q' // quit mode
 
 #define DEBUG 1 // toggles debug
-#define PRGM_NAME "irccd"
+#define PRGNAME "irccd" // Name of the program
 
 /* linked list for all Channels */
 typedef struct Channel{
