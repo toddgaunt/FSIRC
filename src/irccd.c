@@ -11,28 +11,31 @@
  * TODO conform to XDG spec, ~/.config/irccd/socket, ~/.config/irccd/log etc..
  */
 
+#include <arpa/inet.h> 
+#include <fcntl.h>
 #include <limits.h>
+#include <malloc.h>
+#include <netdb.h>
 #include <stdio.h> 
 #include <stdlib.h>
 #include <string.h>
-#include <netdb.h>
-#include <unistd.h>
-#include <arpa/inet.h> 
-#include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <signal.h>
-#include <malloc.h>
+#include <unistd.h>
 //#include <libconfig.h>//Use this to make config file
 /* - - - - - - - */
 #include "irccd.h"
 
+static char *sockpath = "/tmp/irccd.socket";
+static char host_serv[IP_LEN] = "162.213.39.42";
+
 static void usage()
 {
 	fprintf(stderr, "irccd - irc client daemon - " VERSION "\n"
-	"usage: irccd []\n");
+	"usage: irccd [-s socket] [-h]\n");
 }
 
 int send_msg(int sockfd, char *out)
@@ -180,7 +183,7 @@ int rm_chan(Channel *head, char *chan_name)
 }
 
 // Currently unused
-int printchan(char *buf, Channel *head)
+int list_chan(Channel *head, char *buf)
 {/* Pretty Prints all channels client is connected to 
   * Later should write channels to a log file */
 	Channel *node = head;
@@ -203,18 +206,20 @@ int ping_host(int sockfd, char *msg)
 	return send_msg(sockfd, out);
 }
 
-int sendlogin(int sockfd, char *nick, char *realname) 
+int send_login(int sockfd, char *nick) 
 {/* Sends out login information to the host */
 	char out[PIPE_BUF];
-	sprintf(out, "NICK %s\r\nUSER %s 8 * :nick\r\n", nick, nick);
+	sprintf(out, "NICK %s\r\n", nick);
+	send_msg(sockfd, out);
+	sprintf(out, "USER %s 8 * :nick\r\n", nick);
 	send_msg(sockfd, out);
 	return 0;
 }
 
-int chan_name_check(char *chan_name) 
+int chan_check(char *chan_name) 
 {/* Performs checks to make sure the string is a channel name */
 	if (chan_name[0] != '#' || sizeof(chan_name) > CHAN_LEN) {
-		fprintf(stdout, "PRGRM_NAME: %s is not a valid channel\n", chan_name);
+		fprintf(stdout, "PRGRM_NAME: %s is not a valid channel name\n", chan_name);
 		return 1;
 	}
 	return 0;
@@ -226,15 +231,16 @@ int main(int argc, char *argv[])
 	// Paths to sockets and fifos
 	char *nick = "iwakura_lain";
 	char *fifopath = "/tmp/irccd.fifo";
-	char *sockpath = "/tmp/irccd.socket";
+
 	// User info
 	int host_sockfd = 0; // fd used for internet socket
-	char host_serv[IP_LEN] = "162.213.39.42";
-	// Channel list pointers
+
+	// Channel pointers
 	Channel *channels = (Channel*)malloc(sizeof(Channel)); // List of channels
     char chan_name[CHAN_LEN];
 
 	int local_sockfd = 0; // socket used for client to talk to irccd (also forked processes)
+	bind_sock(sockpath, &local_sockfd);
 	// Defines the action to be performed
 	char actmode = 0;
 	int pid = 0;
@@ -259,7 +265,7 @@ int main(int argc, char *argv[])
 
 		switch (actmode) {
 		case JOIN_MOD:
-			if (chan_name_check(pos)) {
+			if (chan_check(pos)) {
 				break;
 			}
 			strcpy(chan_name, pos);
@@ -279,6 +285,10 @@ int main(int argc, char *argv[])
 		case LIST_MOD:
 			sprintf(out, "LIST %s\r\n", pos);
 			send_msg(host_sockfd, out);
+			break;
+		case LIST_CHAN_MOD:
+			list_chan(channels, pos);
+			send_msg(local_sockfd, pos);
 			break;
 		case WRITE_MOD:
 			sprintf(out, "PRIVMSG %s :%s\r\n", chan_name, pos);
@@ -304,10 +314,7 @@ int main(int argc, char *argv[])
 					fprintf(stderr, PRGNAME": error: connection failed\n");
 					exit(1);
 				}
-				sprintf(out, "NICK %s\r\n", nick);
-				send_msg(host_sockfd, out);
-				sprintf(out, "USER %s 8 * :nick\r\n", nick);
-				send_msg(host_sockfd, out);
+				send_login(host_sockfd, nick);
 				// Seperate process reads socket
 				pid = spawn_reader(host_sockfd);
 			}

@@ -1,6 +1,9 @@
 #ifndef IRCCD_H_INCLUDED
 #define IRCCD_H_INCLUDED
 
+#define PRGNAME "irccd" // Name of the program
+#define DEBUG 1 // toggles debug
+
 /* Maximum length of some strings */
 #define CHAN_LEN 128
 #define IP_LEN 32
@@ -13,18 +16,16 @@
 #define CONN_MOD 'c' // connect to a host
 #define DISC_MOD 'd' // disconnect from a host
 #define JOIN_MOD 'j' // join channel 
-#define LOG_MOD 'l' // log chat display
+#define LOG_MOD 'l' // show chat log
 #define NICK_MOD 'n' // nickname mode
 #define PART_MOD 'p' // part from channel
 #define WRITE_MOD 'w' // write to channel
 
-#define LIST_MOD 'L' // list channels
+#define LIST_CHAN_MOD 'C' // list channels joined
+#define LIST_MOD 'L' // list remote channels
 #define RAW_MOD 'R' // raw message to irc with no formatting
 #define PING_MOD 'P' // ping a channel
 #define QUIT_MOD 'Q' // quit mode
-
-#define DEBUG 1 // toggles debug
-#define PRGNAME "irccd" // Name of the program
 
 /* linked list for all Channels */
 typedef struct Channel{
