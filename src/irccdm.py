@@ -7,9 +7,13 @@ import os
 import json
 import time
 import sys
+import socket
+import functools
+import itertools
 
 # globals
-fifo_file = "/tmp/irccd.fifo"
+sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+sock.connect("/tmp/irccd.socket")
 config_file = "profiles.json"
 
 def main():
@@ -50,15 +54,24 @@ def main():
         print("No commands entered")
         quit()
 
+def fifo_read():
+    global sock
+    try:
+        msg = sock.recv(512)
+        sock.close()
+
+        return msg
+    except OSError:
+        print ("No socket connection")
+
 def fifo_write(msg):
-    global fifo_file
+    global sock
     msg = str.encode(msg)
     try:
-        fd = open(fifo_file, 'wb', 0)
-        fd.write(msg)
-        fd.close()
+        sock.send(msg)
+        print(msg)
     except OSError:
-        print ("No fifo file")
+        print ("No socket connection.")
 
 def read_config(file, name):
     """Reads json configuration file"""
@@ -167,7 +180,9 @@ def cmd_channel():
         #TODO
         pass
     elif command == "list":
-        fifo_write('L')
+        global sock
+        fifo_write('C')
+        print(cstr(fifo_read()))
     elif command == "join":
         fifo_write('j' + channel)
     elif command == "part":
@@ -176,8 +191,13 @@ def cmd_channel():
         invalid_cmd()
 
 def invalid_cmd():
-        print ("Not a valid subcommand")
-        quit()
+    print ("Not a valid subcommand")
+    quit()
+
+def cstr(f):
+    f = f.decode("utf-8")
+    f = f.replace('\n', '')
+    return f
 
 if __name__  ==  "__main__":
     main()

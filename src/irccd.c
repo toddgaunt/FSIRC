@@ -11,6 +11,8 @@
  * TODO conform to XDG spec, ~/.config/irccd/socket, ~/.config/irccd/log etc..
  */
 
+#include <errno.h>
+
 #include <arpa/inet.h> 
 #include <fcntl.h>
 #include <limits.h>
@@ -31,6 +33,7 @@
 
 static char *sockpath = "/tmp/irccd.socket";
 static char host_serv[IP_LEN] = "162.213.39.42";
+static char actmode = 0;
 
 static void usage()
 {
@@ -55,6 +58,9 @@ int read_msg(int sockfd, char *recvline)
 	int n = read(sockfd, recvline, PIPE_BUF);
 	if (n > 0) {
 		fprintf(stdout, PRGNAME": in: %s", recvline);
+	}
+	else {
+		fprintf(stderr, PRGNAME": socket read error\n");
 	}
 	memset(&out, 0, sizeof(out));
 	if (n > 0 && strstr(recvline, "PING") != NULL) {
@@ -84,19 +90,20 @@ int sock_conn(char *host, int *host_sockfd)
 	}
 	// Points sockaddr pointer to servaddr because connect takes sockaddr structs
 	if (connect(*host_sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
+		fprintf(stderr, PRGNAME": error: failed connecting socket\n");
 		return 1;
 	}
 
 	return 0;
 }
 
-int host_disc(int *host_sockfd)
+int host_disc(int *sockfd)
 {/* Disconnects from irc gracefully, then close the socket. */
-	send_msg(*host_sockfd, "QUIT\r\n");
-	return shutdown(*host_sockfd, SHUT_RDWR);
+	send_msg(*sockfd, "QUIT\r\n");
+	return shutdown(*sockfd, SHUT_RDWR);
 }
 
-int bind_sock(char *path, int *local_sockfd)
+int bind_sock(char *path, int *sockfd)
 {/* Contruct a unix socket for inter-process communication, then connect */
 	struct sockaddr_un servaddr; 
 	memset(&servaddr, 0, sizeof(servaddr));
@@ -104,12 +111,14 @@ int bind_sock(char *path, int *local_sockfd)
 	strcpy(servaddr.sun_path, path);
 
 	// modifies local socket for unix communication 
-	*local_sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
-	if (*local_sockfd < 0) {
+	*sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
+	if (*sockfd < 0) {
 		fprintf(stderr, PRGNAME": error: socket creation error\n");
 		return 1;
 	}
-	if (bind(*local_sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
+	unlink(path);
+	if (bind(*sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
+		fprintf(stderr, PRGNAME": error: failed binding socket\n");
 		return 1;
 	}
 	return 0;
@@ -126,7 +135,6 @@ int spawn_reader(int sockfd)
 			if (read_msg(sockfd, recvline) <= 0) {
 				timer += 1;
 				sleep(1);
-				fprintf(stderr, PRGNAME": reader error (%d)\n", timer);
 			} else { 
 				timer = 0;
 			}
@@ -184,8 +192,7 @@ int rm_chan(Channel *head, char *chan_name)
 
 // Currently unused
 int list_chan(Channel *head, char *buf)
-{/* Pretty Prints all channels client is connected to 
-  * Later should write channels to a log file */
+{/* Pretty Prints all channels client is connected to */
 	Channel *node = head;
 	if (node != NULL) {
 		sprintf(buf, "%s->", node->name);
@@ -230,7 +237,6 @@ int main(int argc, char *argv[])
 	usage();
 	// Paths to sockets and fifos
 	char *nick = "iwakura_lain";
-	char *fifopath = "/tmp/irccd.fifo";
 
 	// User info
 	int host_sockfd = 0; // fd used for internet socket
@@ -241,27 +247,25 @@ int main(int argc, char *argv[])
 
 	int local_sockfd = 0; // socket used for client to talk to irccd (also forked processes)
 	bind_sock(sockpath, &local_sockfd);
-	// Defines the action to be performed
-	char actmode = 0;
-	int pid = 0;
+
 	// Message buffers for sending and recieving 
 	char buf[PIPE_BUF], out[PIPE_BUF], pos[PIPE_BUF];
+
 	// File descriptor and for loop counter
 	int fd, i;
+	int pid = 0;
 
-	mkfifo(fifopath, 0666);
+	listen(local_sockfd, 5);
 	while(1) {
-		fd = open(fifopath, O_RDONLY); 
+		fd = accept(local_sockfd, NULL, NULL);
 		memset(&buf, 0, sizeof(buf));
-		read(fd, buf, sizeof(buf));
+		recv(fd, buf, PIPE_BUF, 0); 
 		actmode = buf[0];
-
 		fprintf(stdout, PRGNAME": mode: %c\n", actmode);
 
 		for (i = 0; i < sizeof(buf)-1; i++) {
 			pos[i] = buf[i+1]; // Stores the message seperately from actcode
 		}
-		close(fd);
 
 		switch (actmode) {
 		case JOIN_MOD:
@@ -284,11 +288,11 @@ int main(int argc, char *argv[])
 			break;
 		case LIST_MOD:
 			sprintf(out, "LIST %s\r\n", pos);
-			send_msg(host_sockfd, out);
+			send_msg(host_sockfd, pos);
 			break;
 		case LIST_CHAN_MOD:
 			list_chan(channels, pos);
-			send_msg(local_sockfd, pos);
+			send(fd, pos, PIPE_BUF, 0);
 			break;
 		case WRITE_MOD:
 			sprintf(out, "PRIVMSG %s :%s\r\n", chan_name, pos);
@@ -332,6 +336,7 @@ int main(int argc, char *argv[])
 			printf("NO COMMAND\n");
 			sleep(1);
 		}
+		close(fd);
 	}
 	printf("Failed to fork\n");
 	kill(pid, SIGTERM);
