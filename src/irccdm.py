@@ -69,7 +69,6 @@ def fifo_write(msg):
     msg = str.encode(msg)
     try:
         sock.send(msg)
-        print(msg)
     except OSError:
         print ("No socket connection.")
 

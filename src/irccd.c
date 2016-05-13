@@ -11,9 +11,9 @@
  * TODO conform to XDG spec, ~/.config/irccd/socket, ~/.config/irccd/log etc..
  */
 
-#include <errno.h>
 
 #include <arpa/inet.h> 
+#include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <malloc.h>
@@ -37,7 +37,7 @@ static char actmode = 0;
 
 static void usage()
 {
-	fprintf(stderr, "irccd - irc client daemon - " VERSION "\n"
+	fprintf(stdout, "irccd - irc client daemon - " VERSION "\n"
 	"usage: irccd [-s socket] [-h]\n");
 }
 
@@ -45,9 +45,9 @@ int send_msg(int sockfd, char *out)
 {/* Send message with debug output to socket */
 	int n = send(sockfd, out, strlen(out), 0);
 	if (n <= 0) {
-		fprintf(stderr, PRGNAME": error: message sending error\n");
+		perror("unable to send message");
 	} else {
-		fprintf(stderr, PRGNAME": out: %s", out);
+		fprintf(stdout, PRGNAME": out%s", out);
 	}
 	return n;
 }
@@ -56,11 +56,10 @@ int read_msg(int sockfd, char *recvline)
 {/* Read next message from socket, replies to any PING with a PONG */
 	char *pos, out[PIPE_BUF];
 	int n = read(sockfd, recvline, PIPE_BUF);
-	if (n > 0) {
+	if (n < 0) {
+		perror("unable to recieve message");
+	} else {
 		fprintf(stdout, PRGNAME": in: %s", recvline);
-	}
-	else {
-		fprintf(stderr, PRGNAME": socket read error\n");
 	}
 	memset(&out, 0, sizeof(out));
 	if (n > 0 && strstr(recvline, "PING") != NULL) {
@@ -81,16 +80,16 @@ int sock_conn(char *host, int *host_sockfd)
 	// Modifies the host_sockfd for the rest of main() to use
 	*host_sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	if (*host_sockfd < 0) {
-		fprintf(stdout, PRGNAME": socket creation error\n");
+		perror("cannot create socket");
 		return 1;
 	}
 	if (inet_pton(AF_INET, host, &servaddr.sin_addr) <= 0) {
-		fprintf(stderr, PRGNAME": error: invalid network address error\n");
+		perror("cannot transform ip");
 		return 1;
 	}
 	// Points sockaddr pointer to servaddr because connect takes sockaddr structs
 	if (connect(*host_sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
-		fprintf(stderr, PRGNAME": error: failed connecting socket\n");
+		perror("unable to connect socket");
 		return 1;
 	}
 
@@ -113,12 +112,12 @@ int bind_sock(char *path, int *sockfd)
 	// modifies local socket for unix communication 
 	*sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
 	if (*sockfd < 0) {
-		fprintf(stderr, PRGNAME": error: socket creation error\n");
+		perror("cannot create socket");
 		return 1;
 	}
 	unlink(path);
 	if (bind(*sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
-		fprintf(stderr, PRGNAME": error: failed binding socket\n");
+		perror("unable to bind socket");
 		return 1;
 	}
 	return 0;
@@ -158,7 +157,7 @@ int add_chan(Channel *head, char *chan_name)
 	tmp->next = (Channel *)malloc(sizeof(Channel)); 
 	tmp = tmp->next; 
 	if (tmp == 0) {
-		fprintf(stderr, PRGNAME": error: out of memory\n");
+		perror("Cannot allocate memory");
 		return -1;
 	}
 	tmp->name = strdup(chan_name);
@@ -190,7 +189,6 @@ int rm_chan(Channel *head, char *chan_name)
 	return 1;
 }
 
-// Currently unused
 int list_chan(Channel *head, char *buf)
 {/* Pretty Prints all channels client is connected to */
 	Channel *node = head;
@@ -250,6 +248,7 @@ int main(int argc, char *argv[])
 
 	// Message buffers for sending and recieving 
 	char buf[PIPE_BUF], out[PIPE_BUF], pos[PIPE_BUF];
+	
 
 	// File descriptor and for loop counter
 	int fd, i;
@@ -301,7 +300,7 @@ int main(int argc, char *argv[])
 		case NICK_MOD:
 			if (strcmp(nick, pos) == 0) {
 				fprintf(stdout, PRGNAME": nickname %s already in use "
-								"by this client\n", nick);
+					"by this client\n", nick);
 				break;
 			} 
 			strcpy(nick, pos);
@@ -315,7 +314,6 @@ int main(int argc, char *argv[])
 			} else {
 				strcpy(host_serv, pos);
 				if (sock_conn(host_serv, &host_sockfd) != 0) {
-					fprintf(stderr, PRGNAME": error: connection failed\n");
 					exit(1);
 				}
 				send_login(host_sockfd, nick);

@@ -1,7 +1,7 @@
 #ifndef IRCCD_H_INCLUDED
 #define IRCCD_H_INCLUDED
 
-#define PRGNAME "irccd" // Name of the program
+#define PRGNAME "irccd"
 #define DEBUG 1 // toggles debug
 
 /* Maximum length of some strings */
