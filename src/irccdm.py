@@ -5,16 +5,8 @@
 import argparse
 import os
 import json
-import time
 import sys
 import socket
-import functools
-import itertools
-
-# globals
-sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-sock.connect("/tmp/irccd.socket")
-config_file = "profiles.json"
 
 def main():
     parser = argparse.ArgumentParser(description = "Messaging client for irccd  \
@@ -35,53 +27,41 @@ def main():
                                                             part,    \
                                                             list]    \
                                                     ")
+    parser.add_argument ('command', metavar='command',
+                        nargs='+',
+                        help='Subcommand to be run')
 
-    parser.add_argument('command', metavar='command',
-                        nargs = '+',
-                        help = 'Subcommand to be run')
+    parser.add_argument ('-p', '--profile', metavar='profile',
+                        type=str, default="default",
+                        help='Which profile to load for connection info')
+
+    parser.add_argument ('-c', '--config-file', metavar='filepath',
+                        type=str, default="profiles.json",
+                        help='Specify a profile file to load')
+
+    parser.add_argument ('-s', '--sockpath', metavar='sockpath',
+                        type=str, default='/tmp/irccd.socket',
+                        help='Path to unix socket')
 
     args = parser.parse_args(sys.argv[1:2])
 
     if args.command[0] == "write":
-        cmd_write()
+        cmd_write(args)
     elif args.command[0] == "host":
-        cmd_host()
+        cmd_host(args)
     elif args.command[0] == "channel" or args.command[0] == "chan":
-        cmd_channel()
+        cmd_channel(args)
     elif args.command[0] == "quit":
-        fifo_write('Q')
+        sock = socket_connect(args.sockpath)
+        socket_send(sock, 'Q')
     else:
-        print("No commands entered")
+        print("No valid commands entered")
         quit()
 
-def fifo_read():
-    global sock
-    try:
-        msg = sock.recv(512)
-        sock.close()
+def cmd_write(args):
+    conf = read_config(args.config_file, args.profile)
 
-        return msg
-    except OSError:
-        print ("No socket connection")
-
-def fifo_write(msg):
-    global sock
-    msg = str.encode(msg)
-    try:
-        sock.send(msg)
-    except OSError:
-        print ("No socket connection.")
-
-def read_config(file, name):
-    """Reads json configuration file"""
-    with open(file, 'rt') as fd:
-        data = json.loads(fd.read())
-        conf = data[name]
-        return conf
-
-def cmd_write():
     parser = argparse.ArgumentParser(description = "Write messages to irc")
-
     parser.add_argument('command', metavar='command',
                         type = str, default = '',
                         help = 'Subcommand to be run [message | msg]')
@@ -90,25 +70,25 @@ def cmd_write():
                         type = str,
                         help = 'Message to be sent')
 
-    args = parser.parse_args(sys.argv[2:])
-    command = args.command
+    write_args = parser.parse_args(sys.argv[2:])
+    command = write_args.command
 
-    if args.message:
-        msg = args.message
+    if write_args.message:
+        msg = write_args.message
     else:
         #TODO open up default editor so user can write a message
         msg = ""
 
     if command == "message" or command == "msg":
-        fifo_write('w' + msg)
+        sock = socket_connect(args.sockpath)
+        socket_send(sock, 'w' + msg)
     else:
         invalid_cmd()
 
-def cmd_host():
-    global config_file
-    conf = read_config(config_file, "default")
-    parser = argparse.ArgumentParser(description = "Manage connection to host")
+def cmd_host(args):
+    conf = read_config(args.config_file, args.profile)
 
+    parser = argparse.ArgumentParser(description = "Manage connection to host")
     parser.add_argument('command', metavar='command',
                         type = str, default = '',
                         help = 'Subcommand to be run [add], [remove], \
@@ -118,11 +98,11 @@ def cmd_host():
                         type = str,
                         help = 'Host ip or name')
 
-    args = parser.parse_args(sys.argv[2:])
-    command = args.command
+    host_args = parser.parse_args(sys.argv[2:])
+    command = host_args.command
 
-    if args.host:
-        host = args.host
+    if host_args.host:
+        host = host_args.host
         if host in conf["saved_hosts"]:
             host = conf["saved_hosts"][host]
     else:
@@ -135,17 +115,20 @@ def cmd_host():
         #TODO
         pass
     elif command == "connect":
-        fifo_write('c' + host)
+        sock = socket_connect(args.sockpath)
+        socket_send(sock, 'c' + host)
+        print(cstr(socket_recv(sock)))
     elif command == "disconnect":
-        fifo_write('d')
+        sock = socket_connect(args.sockpath)
+        socket_send(sock, 'd')
     elif command == "ping":
-        fifo_write('P')
+        sock = socket_connect(args.sockpath)
+        socket_send(sock, 'P')
     else:
         invalid_cmd()
 
-def cmd_channel():
-    global config_file
-    conf = read_config(config_file, "default")
+def cmd_channel(args):
+    conf = read_config(args.config_file, args.profile)
     parser = argparse.ArgumentParser(description = "Manage irc channels")
 
     parser.add_argument('command', metavar='command',
@@ -160,11 +143,11 @@ def cmd_channel():
                         type = str,
                         help = 'Target Channel')
 
-    args = parser.parse_args(sys.argv[2:])
-    command = args.command
+    chan_args = parser.parse_args(sys.argv[2:])
+    command = chan_args.command
 
-    if args.channel:
-        channel = args.channel
+    if chan_args.channel:
+        channel = chan_args.channel
     else:
         channel = ""
 
@@ -178,22 +161,53 @@ def cmd_channel():
     elif command == "remove":
         #TODO
         pass
-    elif command == "list":
-        global sock
-        fifo_write('C')
-        print(cstr(fifo_read()))
+    elif command == "joined":
+        sock = socket_connect(args.sockpath)
+        socket_send(sock, 'C')
+        print("Joined: " + cstr(socket_recv(sock)))
     elif command == "join":
-        fifo_write('j' + channel)
+        sock = socket_connect(args.sockpath)
+        socket_send(sock, 'j' + channel)
     elif command == "part":
-        fifo_write('p' + channel)
+        sock = socket_connect(args.sockpath)
+        socket_send(sock, 'p' + channel)
     else:
         invalid_cmd()
+
+def socket_connect(sockpath):
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.connect(sockpath)
+    return sock
+
+def socket_recv(sock):
+    try:
+        msg = sock.recv(512)
+        sock.close()
+
+        return msg
+    except OSError:
+        print ("No socket connection")
+
+def socket_send(sock, msg):
+    msg = str.encode(msg)
+    try:
+        sock.send(msg)
+    except OSError:
+        print ("No socket connection.")
+
+def read_config(file, name):
+    """Reads json configuration file"""
+    with open(file, 'rt') as fd:
+        data = json.loads(fd.read())
+        conf = data[name]
+        return conf
 
 def invalid_cmd():
     print ("Not a valid subcommand")
     quit()
 
 def cstr(f):
+    """ Converts byte-strings from C to UTF-8 strings """
     f = f.decode("utf-8")
     f = f.replace('\n', '')
     return f

@@ -1,4 +1,4 @@
-CFLAGS=-Wall -g
+CFLAGS=-Wall -g -march=x86-64 -pipe
 
 clean:
 	rm -rf build/

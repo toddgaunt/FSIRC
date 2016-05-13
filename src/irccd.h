@@ -1,6 +1,8 @@
 #ifndef IRCCD_H_INCLUDED
 #define IRCCD_H_INCLUDED
 
+#include <limits.h>
+
 #define PRGNAME "irccd"
 #define DEBUG 1 // toggles debug
 
@@ -8,7 +10,7 @@
 #define CHAN_LEN 128
 #define IP_LEN 32
 #define NICK_LEN 16
-#define PING_TIMEOUT 300
+#define PING_TIMEOUT 10
 #define IRCCD_PORT 6667
 #define VERSION "1.0"
 
@@ -28,20 +30,16 @@
 #define QUIT_MOD 'Q' // quit mode
 
 /* linked list for all Channels */
-typedef struct Channel{
+typedef struct Channel {
 	char *name;
 	struct Channel *next;
 } Channel;
 
-typedef struct Conn_Info Conn_Info;
-struct Conn_Info {
-	/* Connection info */
-	char host[CHAN_LEN];
+typedef struct Ircmessage {
 	char channel[CHAN_LEN];
-	unsigned int port;
-	char nick[CHAN_LEN];
-	char realname[CHAN_LEN];
-	int sockfd; //socket
-};
+	char sender[NICK_LEN];
+	char body[PIPE_BUF];
+	char time[NICK_LEN];
+} Message;
 
 #endif
