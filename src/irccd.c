@@ -45,9 +45,9 @@ int send_msg(int sockfd, char *out)
 {/* Send message with debug output to socket */
 	int n = send(sockfd, out, strlen(out), 0);
 	if (n <= 0) {
-		perror("unable to send message");
+		perror(PRGNAME": unable to send message");
 	} else {
-		fprintf(stdout, PRGNAME": out%s", out);
+		fprintf(stdout, PRGNAME": out: %s", out);
 	}
 	return n;
 }
@@ -57,7 +57,7 @@ int read_msg(int sockfd, char *recvline)
 	char *pos, out[PIPE_BUF];
 	int n = read(sockfd, recvline, PIPE_BUF);
 	if (n < 0) {
-		perror("unable to recieve message");
+		perror(PRGNAME": unable to recieve message");
 	} else {
 		fprintf(stdout, PRGNAME": in: %s", recvline);
 	}
@@ -80,16 +80,16 @@ int sock_conn(char *host, int *host_sockfd)
 	// Modifies the host_sockfd for the rest of main() to use
 	*host_sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	if (*host_sockfd < 0) {
-		perror("cannot create socket");
+		perror(PRGNAME": cannot create socket");
 		return 1;
 	}
 	if (inet_pton(AF_INET, host, &servaddr.sin_addr) <= 0) {
-		perror("cannot transform ip");
+		perror(PRGNAME": cannot transform ip");
 		return 1;
 	}
 	// Points sockaddr pointer to servaddr because connect takes sockaddr structs
 	if (connect(*host_sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
-		perror("unable to connect socket");
+		perror(PRGNAME": unable to connect socket");
 		return 1;
 	}
 
@@ -112,12 +112,12 @@ int bind_sock(char *path, int *sockfd)
 	// modifies local socket for unix communication 
 	*sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
 	if (*sockfd < 0) {
-		perror("cannot create socket");
+		perror(PRGNAME": cannot create socket");
 		return 1;
 	}
 	unlink(path);
 	if (bind(*sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
-		perror("unable to bind socket");
+		perror(PRGNAME": unable to bind socket");
 		return 1;
 	}
 	return 0;
@@ -157,7 +157,7 @@ int add_chan(Channel *head, char *chan_name)
 	tmp->next = (Channel *)malloc(sizeof(Channel)); 
 	tmp = tmp->next; 
 	if (tmp == 0) {
-		perror("Cannot allocate memory");
+		perror(PRGNAME": Cannot allocate memory");
 		return -1;
 	}
 	tmp->name = strdup(chan_name);
@@ -325,10 +325,15 @@ int main(int argc, char *argv[])
 			ping_host(host_sockfd, pos);
 			break;
 		case DISC_MOD:
+			if (pid != 0) {
+				kill(pid, SIGTERM);
+			}
 			host_disc(&host_sockfd);
 			break;
 		case QUIT_MOD:
-			kill(pid, SIGTERM);
+			if (pid != 0) {
+				kill(pid, SIGTERM);
+			}
 			exit(0);
 		default:
 			printf("NO COMMAND\n");
@@ -337,6 +342,8 @@ int main(int argc, char *argv[])
 		close(fd);
 	}
 	printf("Failed to fork\n");
-	kill(pid, SIGTERM);
+	if (pid != 0) {
+		kill(pid, SIGTERM);
+	}
 	exit(1);
 }
