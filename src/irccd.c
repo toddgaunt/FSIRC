@@ -29,9 +29,9 @@
 static struct Channel *channels = NULL;        /* Head of the connected channels list */
 static char *socketpath = "/tmp/irccd.socket"; /* Path to socket on filesystem */
 static char host_serv[IP_LEN];                 /* String containing server address */
-static unsigned short port = 6667;             /* Port to connect with */
+static unsigned int port = 6667;               /* Port to connect with */
 static char *nick = "iwakura_lain";            /* User nickname */
-static char *realname = "Todd G.";        /* User nickname */
+static char *realname = "Todd G.";             /* User nickname */
 
 static void usage()
 {
@@ -42,13 +42,12 @@ static void usage()
 
 int log_msg(char *buf)
 {/* Writes buf to a log file corresponding to channel message was in */
-	
 	return 1;
 }
 
 int send_msg(int sockfd, char *out)
 {/* Send message to socket */
-	int n = send(sockfd, out, sizeof(out), MSG_NOSIGNAL);
+	int n = send(sockfd, out, PIPE_BUF, 0);
 	if (n <= 0) {
 		perror(PRGNAME": unable to send message");
 	} else {
@@ -57,22 +56,19 @@ int send_msg(int sockfd, char *out)
 	return n;
 }
 
-int read_msg(int sockfd, char *recvline)
-{/* Read next message from socket, replies to any PING with a PONG */
-	char *pos, out[PIPE_BUF];
-	int n = recv(sockfd, recvline, PIPE_BUF, 0);
-	if (n <= 0) {
-		perror(PRGNAME": unable to recieve message");
-	} else {
-		printf(PRGNAME": in: %s", recvline);
-	}
-	if (n > 0 && strstr(recvline, "PING") != NULL) {
-		pos = strstr(recvline, " ")+1;
-		sprintf(out, "PONG %s\r\n", pos);
-		send_msg(sockfd, out);
-	}
-	//log_msg(recvline);
-	return n;
+int read_line(int sockfd, char *recvline, int max_buf)
+{/* Read chars from socket until '\n' */
+	int i = 0;
+	char c;
+	do {
+		if (read(sockfd, &c, sizeof(char)) != sizeof(char)) {
+			perror(PRGNAME": Unable to read socket");
+			return -1;
+		}
+		recvline[i++] = c;
+	} while (c != '\n' && i < max_buf);
+
+	return 0;
 }
 
 int socket_connect(char *host, int *sockfd, int port)
@@ -131,15 +127,24 @@ int fork_reader(int sockfd)
 	if (pid == 0) {
 		char recvline[PIPE_BUF];
 		int timer = 0;
+		char *pos, out[PIPE_BUF]; // For ping messaging
 		while(1) {
 			memset(&recvline, 0, PIPE_BUF);
-			if (read_msg(sockfd, recvline) <= 0) {
+			if (read_line(sockfd, recvline, PIPE_BUF) != 0) {
 				timer += 1;
 				if (timer >= PING_TIMEOUT) {
+					close(sockfd);
 					exit(1); // kill the reader if read attempt fails after PING_TIMEOUT (10 seconds)
 				}
 				sleep(1);
 			} else { 
+				printf(PRGNAME": in: %s", recvline);
+				log_msg(recvline);
+				if (strstr(recvline, "PING") != NULL) {
+					pos = strstr(recvline, " ")+1;
+					sprintf(out, "PONG %s\r\n", pos);
+					send_msg(sockfd, out);
+				}
 				timer = 0;
 			}
 		}
@@ -217,22 +222,33 @@ int chan_check(char *chan_name)
 	return 0;
 }
 
-void quit_cmd(int pid)
+void quit_cmd(int pid, int fd)
 {
 	if (pid != 0) {
 		kill(pid, SIGTERM);
 		pid = 0;
 	}
+	send(fd, "irccd: Quitting", PIPE_BUF, 0);
 	exit(0);
+}
+
+void login(int sockfd)
+{
+	char out[PIPE_BUF];
+	sprintf(out, "USER %s 8 * :%s\r\nNICK %s\r\n", nick, realname, nick);
+	send_msg(sockfd, out);
 }
 
 int main(int argc, char *argv[]) 
 {
 	/* 
 	struct Ircmessage *msg = (Ircmessage*)malloc(sizeof(Ircmessage));
-	char *mybuf = ": singularik!verssdasddsadadsdd@-bitch____baby PRIVMSG #Y35chan : my body is here";
+	char *mybuf = ": singularik!verssdasddsadadsdd@-bitch____baby PRIVMSG #Y35chan :my body is here";
 	parse_msg(mybuf, msg);
 	*/
+
+	// Ignore sigpipes, they're handled internally
+	signal(SIGPIPE, SIG_IGN);
 
 	// TCP socket for irc server
 	int host_sockfd = 0;
@@ -245,7 +261,7 @@ int main(int argc, char *argv[])
 	socket_bind(socketpath, &local_sockfd);
 
 	// Message buffers for sending and recieving 
-	char buf[PIPE_BUF], out[PIPE_BUF];
+	char buf[PIPE_BUF], out[PIPE_BUF], message[PIPE_BUF];
 
 	// Initialize channels
 	channels = (Channel*)malloc(sizeof(Channel));
@@ -260,6 +276,7 @@ int main(int argc, char *argv[])
 		fd = accept(local_sockfd, NULL, NULL);
 		memset(&buf, 0, PIPE_BUF);
 		memset(&out, 0, PIPE_BUF);
+		memset(&message, 0, PIPE_BUF);
 		recv(fd, buf, PIPE_BUF, 0); 
 		actmode = buf[0];
 		fprintf(stdout, PRGNAME": mode: %c\n", actmode);
@@ -271,7 +288,7 @@ int main(int argc, char *argv[])
 
 		switch (actmode) {
 		case JOIN_MOD:
-			if (chan_check(buf)) {
+			if (chan_check(buf) != 0) {
 				break;
 			}
 			strcpy(chan_name, buf);
@@ -293,8 +310,7 @@ int main(int argc, char *argv[])
 			send_msg(host_sockfd, buf);
 			break;
 		case LIST_CHAN_MOD:
-			list_chan(out);
-			send_msg(fd, out);
+			list_chan(message);
 			break;
 		case WRITE_MOD:
 			sprintf(out, "PRIVMSG %s :%s\r\n", chan_name, buf);
@@ -313,18 +329,15 @@ int main(int argc, char *argv[])
 		case CONN_MOD:
 			// Test if we're already connected somewhere
 			if (ping_host(host_sockfd, "") != -1) {
-				sprintf(out, PRGNAME": already connected to %s\n", host_serv);
+				sprintf(message, PRGNAME": already connected to %s\r\n", host_serv);
 				fprintf(stderr, out);
-				send_msg(fd, out);
 			} else {
 				strcpy(host_serv, buf);
 				socket_connect(host_serv, &host_sockfd, port);
 				// Forked process reads socket
 				pid = fork_reader(host_sockfd);
-				sprintf(out, PRGNAME": connected to %s\n", host_serv);
-				send_msg(fd, out);
-				sprintf(out, "NICK %s\r\nUSER %s 8 * :%s\r\n", nick, nick, realname);
-				send_msg(host_sockfd, out);
+				login(host_sockfd);
+				sprintf(message, PRGNAME": connected to %s\r\n", host_serv);
 			}
 			break;
 		case PING_MOD:
@@ -339,19 +352,21 @@ int main(int argc, char *argv[])
 					pid = 0; // Set pid to zero so this won't kill main if invoked again
 				}
 			} else {
-				fprintf(stderr, "Cannot disonnect socket: No connected socket\n");
+				fprintf(stderr, "Cannot disonnect socket: No connected socket\r\n");
 			}
 			host_sockfd = 0; // Zero signifies non-existent socket
 			break;
 		case QUIT_MOD:
-			quit_cmd(pid);
+			quit_cmd(pid, fd);
 			break;
 		default:
 			printf("NO COMMAND\n");
 			sleep(1);
 			break;
 		}
+		// Sends result of commands back to client
+		send(fd, message, sizeof(out), 0);
 		close(fd);
 	}
-	quit_cmd(pid);
+	quit_cmd(pid, fd);
 }

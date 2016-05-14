@@ -54,6 +54,7 @@ def main():
     elif args.command[0] == "quit":
         sock = socket_connect(args.sockpath)
         socket_send(sock, 'Q')
+        print(cstr(socket_recv(sock)))
     else:
         print("No valid commands entered")
         quit()
@@ -82,6 +83,7 @@ def cmd_write(args):
     if command == "message" or command == "msg":
         sock = socket_connect(args.sockpath)
         socket_send(sock, 'w' + msg)
+        print(cstr(socket_recv(sock)))
     else:
         invalid_cmd()
 
@@ -121,9 +123,11 @@ def cmd_host(args):
     elif command == "disconnect":
         sock = socket_connect(args.sockpath)
         socket_send(sock, 'd')
+        print(cstr(socket_recv(sock)))
     elif command == "ping":
         sock = socket_connect(args.sockpath)
         socket_send(sock, 'P')
+        print(cstr(socket_recv(sock)))
     else:
         invalid_cmd()
 
@@ -168,9 +172,11 @@ def cmd_channel(args):
     elif command == "join":
         sock = socket_connect(args.sockpath)
         socket_send(sock, 'j' + channel)
+        print(cstr(socket_recv(sock)))
     elif command == "part":
         sock = socket_connect(args.sockpath)
         socket_send(sock, 'p' + channel)
+        print(cstr(socket_recv(sock)))
     else:
         invalid_cmd()
 
