@@ -3,7 +3,12 @@
 
 #include <limits.h>
 
+#ifndef PIPE_BUF /* If no PIPE_BUF defined */
+#define PIPE_BUF _POSIX_PIPE_BUF
+#endif
+
 #define PRGNAME "irccd"
+#define VERSION "1.0"
 #define DEBUG 1 // toggles debug
 
 /* Maximum length of some strings */
@@ -11,10 +16,8 @@
 #define IP_LEN 32
 #define NICK_LEN 16
 #define PING_TIMEOUT 10
-#define IRCCD_PORT 6667
-#define VERSION "1.0"
 
-/* Command definitions, might change to pure ints */
+/* Command definitions */
 #define CONN_MOD 'c' // connect to a host
 #define DISC_MOD 'd' // disconnect from a host
 #define JOIN_MOD 'j' // join channel 
@@ -34,12 +37,5 @@ typedef struct Channel {
 	char *name;
 	struct Channel *next;
 } Channel;
-
-typedef struct Ircmessage {
-	char channel[CHAN_LEN];
-	char sender[NICK_LEN];
-	char body[PIPE_BUF];
-	char time[NICK_LEN];
-} Message;
 
 #endif
