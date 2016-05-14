@@ -131,25 +131,16 @@ int socket_bind(char *path, int *sockfd)
 int send_login(int sockfd) 
 {/* Sends out login information to the socket */
 	char out[PIPE_BUF];
-	sprintf(out, "NICK %s\r\nUSER %s localhost %s 8 * :%s\r\n", nick, nick, "irc.freenode.net", nick);
+	sprintf(out, "PASS derp\r\nNICK %s\r\nUSER %s * * :%s\r\n", nick, nick, realname);
 	send_msg(sockfd, out);
 	return 0;
 }
 
 int fork_reader(int sockfd)
 {/* Fork process to constantly read from irc socket */
-	char recvline[PIPE_BUF];
-	// Read until host requests login information
-	while(1) {
-		memset(&recvline, 0, PIPE_BUF);
-		if (read_msg(sockfd, recvline) > 0 && strstr(recvline, "Ident") != NULL) {
-			// Then send it and fork 
-			send_login(sockfd);
-			break;
-		}
-	}
 	int pid = fork(); 
 	if (pid == 0) {
+		char recvline[PIPE_BUF];
 		int timer = 0;
 		while(1) {
 			memset(&recvline, 0, PIPE_BUF);
@@ -340,6 +331,7 @@ int main(int argc, char *argv[])
 				socket_connect(host_serv, &host_sockfd, port);
 				// Forked process reads socket
 				pid = fork_reader(host_sockfd);
+				send_login(host_sockfd);
 				sprintf(out, PRGNAME": connected to %s\n", host_serv);
 			}
 			send_msg(fd, out);
