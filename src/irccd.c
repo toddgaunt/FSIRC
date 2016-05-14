@@ -13,14 +13,11 @@
 
 #include <arpa/inet.h> 
 #include <errno.h>
-#include <fcntl.h>
 #include <malloc.h>
 #include <netdb.h>
 #include <stdio.h> 
 #include <stdlib.h>
 #include <string.h>
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <signal.h>
@@ -32,9 +29,9 @@
 static struct Channel *channels = NULL;        /* Head of the connected channels list */
 static char *socketpath = "/tmp/irccd.socket"; /* Path to socket on filesystem */
 static char host_serv[IP_LEN];                 /* String containing server address */
-static int port = 6667;                        /* Port to connect with */
+static unsigned short port = 6667;             /* Port to connect with */
 static char *nick = "iwakura_lain";            /* User nickname */
-static char *realname = "iwakura_lain";            /* User nickname */
+static char *realname = "Todd G.";        /* User nickname */
 
 static void usage()
 {
@@ -74,7 +71,7 @@ int read_msg(int sockfd, char *recvline)
 		sprintf(out, "PONG %s\r\n", pos);
 		send_msg(sockfd, out);
 	}
-	log_msg(recvline);
+	//log_msg(recvline);
 	return n;
 }
 
@@ -128,14 +125,6 @@ int socket_bind(char *path, int *sockfd)
 	return 0;
 }
 
-int send_login(int sockfd) 
-{/* Sends out login information to the socket */
-	char out[PIPE_BUF];
-	sprintf(out, "PASS derp\r\nNICK %s\r\nUSER %s * * :%s\r\n", nick, nick, realname);
-	send_msg(sockfd, out);
-	return 0;
-}
-
 int fork_reader(int sockfd)
 {/* Fork process to constantly read from irc socket */
 	int pid = fork(); 
@@ -149,10 +138,10 @@ int fork_reader(int sockfd)
 				if (timer >= PING_TIMEOUT) {
 					exit(1); // kill the reader if read attempt fails after PING_TIMEOUT (10 seconds)
 				}
+				sleep(1);
 			} else { 
 				timer = 0;
 			}
-			sleep(1);
 		}
 	}
 	return pid;
@@ -269,16 +258,16 @@ int main(int argc, char *argv[])
 	listen(local_sockfd, 5);
 	while(1) {
 		fd = accept(local_sockfd, NULL, NULL);
-		memset(&buf, 0, sizeof(buf));
-		memset(&out, 0, sizeof(out));
-		recv(fd, buf, sizeof(buf), 0); 
+		memset(&buf, 0, PIPE_BUF);
+		memset(&out, 0, PIPE_BUF);
+		recv(fd, buf, PIPE_BUF, 0); 
 		actmode = buf[0];
 		fprintf(stdout, PRGNAME": mode: %c\n", actmode);
 
-		for (i=0; i<sizeof(buf)-1; i++) {
+		for (i=0; i<PIPE_BUF-1; i++) {
 			buf[i] = buf[i+1]; // Stores the message seperately from actcode
 		}
-		buf[sizeof(buf)-1]='\0';
+		buf[PIPE_BUF-1]='\0';
 
 		switch (actmode) {
 		case JOIN_MOD:
@@ -326,22 +315,24 @@ int main(int argc, char *argv[])
 			if (ping_host(host_sockfd, "") != -1) {
 				sprintf(out, PRGNAME": already connected to %s\n", host_serv);
 				fprintf(stderr, out);
+				send_msg(fd, out);
 			} else {
 				strcpy(host_serv, buf);
 				socket_connect(host_serv, &host_sockfd, port);
 				// Forked process reads socket
 				pid = fork_reader(host_sockfd);
-				send_login(host_sockfd);
 				sprintf(out, PRGNAME": connected to %s\n", host_serv);
+				send_msg(fd, out);
+				sprintf(out, "NICK %s\r\nUSER %s 8 * :%s\r\n", nick, nick, realname);
+				send_msg(host_sockfd, out);
 			}
-			send_msg(fd, out);
 			break;
 		case PING_MOD:
 			ping_host(host_sockfd, buf);
 			break;
 		case DISC_MOD:
 			if (host_sockfd != 0) {
-				send_msg(host_sockfd, "QUIT\r\n");
+				send_msg(host_sockfd, "QUIT :Bye bye!\r\n");
 				close(host_sockfd);
 				if (pid != 0) {
 					kill(pid, SIGTERM); // Kills child reader
