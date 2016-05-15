@@ -54,7 +54,6 @@ def main():
     elif args.command[0] == "quit":
         sock = socket_connect(args.sockpath)
         socket_send(sock, 'Q')
-        print(cstr(socket_recv(sock)))
     else:
         print("No valid commands entered")
         quit()

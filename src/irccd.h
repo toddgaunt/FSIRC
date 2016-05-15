@@ -7,7 +7,6 @@
 #define PIPE_BUF _POSIX_PIPE_BUF
 #endif
 
-#define PRGNAME "irccd"
 #define VERSION "1.0"
 #define DEBUG 1 // toggles debug
 
