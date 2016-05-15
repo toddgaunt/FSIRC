@@ -42,9 +42,9 @@ static void usage()
 }
 
 int log_msg(char *buf)
-{/* Writes buf to a log file corresponding to channel message was in */
+{/* Writes buf to a log file */
 	FILE *fd = fopen(logpath, "a");
-	if (fprintf(fd, buf) < 0) {
+	if (fprintf(fd, "%s\n", buf) < 0) {
 		return -1;
 	}
 	fclose(fd);
@@ -53,7 +53,6 @@ int log_msg(char *buf)
 
 int send_msg(int sockfd, char *buf)
 {/* Send message to socket, max size is PIPE_BUF*/
-	// If message was trucated along the way, will correct the issuen
 	int n = send(sockfd, buf, PIPE_BUF, 0);
 	if (n <= 0) {
 		buf = "irccd: unable to send message";
@@ -76,8 +75,13 @@ int read_line(int sockfd, char *recvline, int len)
 		}
 		recvline[i++] = c;
 	} while (c != '\n' && i < len);
-
+	recvline[i-1] = '\0'; // gets rid of the '\n'
 	return 0;
+}
+
+int resolve_host(char *ip, char *hostname)
+{/* Resolve hostnames to ip addresses */
+	return -1;
 }
 
 int socket_connect(char *host, int *sockfd, int port)
@@ -86,14 +90,16 @@ int socket_connect(char *host, int *sockfd, int port)
 	memset(&servaddr, 0, sizeof(servaddr));
 	servaddr.sin_family = AF_INET;
 	servaddr.sin_port = htons(port);
-	
+
+	char *addr = host;
+
 	// Define socket to be TCP
 	*sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	if (*sockfd < 0) {
 		perror("irccd: cannot create socket");
 		return 1;
 	}
-	if (inet_pton(AF_INET, host, &servaddr.sin_addr) <= 0) {
+	if (inet_pton(AF_INET, addr, &servaddr.sin_addr) <= 0) {
 		printf("irccd: cannot transform ip\n");
 		return 1;
 	}
@@ -130,6 +136,7 @@ int socket_bind(const char *path, int *sockfd)
 	return 0;
 }
 
+
 int fork_reader(int sockfd)
 {/* Fork process to constantly read from irc socket */
 	int pid = fork(); 
@@ -146,7 +153,7 @@ int fork_reader(int sockfd)
 				}
 				sleep(1);
 			} else { 
-				printf("irccd: in: %s", recvline);
+				printf("irccd: in: %s\n", recvline);
 				log_msg(recvline);
 				if (strstr(recvline, "PING") != NULL) {
 					recvline[1] = 'O'; // Swaps ping 'I' to 'O' for "PONG"
@@ -165,7 +172,7 @@ int fork_sender(int sockfd)
 }
 
 int add_chan(char *chan_name)
-{/* Add a channel to end of a list */
+{/* Add a channel to end of list */
 	Channel *tmp = channels;
 	while (tmp->next != NULL) {
 		tmp = tmp->next;
@@ -187,7 +194,7 @@ int add_chan(char *chan_name)
 }
 
 int rm_chan(char *chan_name)
-{/* Remove an entry with name = chan_name from list */
+{/* Remove an entry with chan_name from list */
 	Channel *garbage;
 	Channel *tmp = channels;
 	while (tmp->next != NULL) {
@@ -209,7 +216,7 @@ int rm_chan(char *chan_name)
 }
 
 void list_chan(char *buf, int len)
-{/* Creates a string of all channels into *buf */
+{/* Puts a string of all channels into *buf */
 	memset(buf, 0, len);
 	Channel *tmp = channels;
 	while (tmp->next != NULL) {
@@ -261,7 +268,7 @@ int main(int argc, char *argv[])
 	int tcpfd = 0;
 
 	// Name of channel last used to connect to, outgoing messages get sent here.
-    char chan_name[CHAN_LEN];
+    char chan_name[CHAN_LEN] = "";
 
 	// Message buffers for sending and recieving 
 	char message[PIPE_BUF];
@@ -273,18 +280,21 @@ int main(int argc, char *argv[])
 	socket_bind(socketpath, &unixfd);
 
 	// Initialize channels
-	channels = (Channel*)malloc(sizeof(Channel));
+	channels = (Channel*)calloc(1, sizeof(channels));
 
 	// File descriptor for unix socket
 	int fd, i;
 	int pid = 0;
+	int msglen;
 
 	char actmode = 0; /* Which mode to operate on */
 	listen(unixfd, 5);
 	while(1) {
 		fd = accept(unixfd, 0, 0);
 		memset(buf, 0, sizeof(buf)); // reset buf to zeros before receiving
-		recv(fd, buf, sizeof(buf), 0); 
+		memset(message, 0, sizeof(message)); // reset buf to zeros before receiving
+		msglen = read_line(fd, buf, PIPE_BUF); 
+		printf("%d, %s\n", msglen, buf);
 		actmode = buf[0];
 		fprintf(stdout, "irccd: mode: %c\n", actmode);
 
@@ -345,8 +355,9 @@ int main(int argc, char *argv[])
 				fprintf(stderr, buf);
 			} else {
 				strcpy(host_serv, buf);
-				socket_connect(host_serv, &tcpfd, port);
-				// Forked process reads socket
+				if (socket_connect(host_serv, &tcpfd, port) != 0) {
+					break;
+				}
 				pid = fork_reader(tcpfd);
 				login(tcpfd);
 				snprintf(message, sizeof(message), "irccd: connected to %s\r\n", host_serv);
