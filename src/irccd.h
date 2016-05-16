@@ -7,8 +7,11 @@
 #define PIPE_BUF _POSIX_PIPE_BUF
 #endif
 
+#define PATH_DEVNULL "/dev/null"
+
 #define VERSION "1.0"
 #define DEBUG 1 // toggles debug
+#define SERVER_PORT 6667
 
 /* Maximum length of some strings */
 #define CHAN_LEN 128
