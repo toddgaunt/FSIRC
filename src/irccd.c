@@ -42,7 +42,7 @@ static char realname[NICK_LEN] = "Todd G.";                  /* User nickname */
 static void usage()
 {
 	fprintf(stderr, "irccd - irc client daemon - %s\n"
-		"usage: irccd [-h] [-p]\n", VERSION);
+		"usage: irccd [-h] [-v] [-d]\n", VERSION);
 	exit(EXIT_FAILURE);
 }
 
@@ -170,7 +170,7 @@ int add_chan(char *chan_name)
 		}
 	}
 	tmp = tmp->next; 
-	tmp = (Channel *)malloc(sizeof(Channel)); 
+	tmp = (Channel *)calloc(1, sizeof(Channel)); 
 	if (!tmp) {
 		printf("irccd: Cannot allocate memory");
 		return -1;
@@ -198,6 +198,8 @@ int rm_chan(char *chan_name)
 		}
 		tmp = tmp->next;
 	}
+	printf("irccd: Could not remove channel %s\n", tmp->name);
+	return -1;
 }
 
 void list_chan(char *buf, int len)
@@ -311,7 +313,7 @@ int main(int argc, char *argv[])
 	socket_bind(socketpath, &unixfd);
 
 	// Head channel
-	channels = (Channel*)malloc(sizeof(Channel));
+	channels = (Channel*)calloc(1, sizeof(Channel));
 
 	// File descriptor for unix socket
 	int fd;
