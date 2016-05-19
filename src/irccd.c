@@ -8,8 +8,6 @@
  * it will auto-save messages for you
  * and can be called from the command line
  * to send messages to the specified channel.
- * TODO MAKE STR BUFFERS SAFER, RIght now there are probably many buffer overflow 
- * attacks and str unsafey in general.
  */
 
 #include <arpa/inet.h> 
@@ -253,6 +251,20 @@ static void login(int *sockfd)
 	send_msg(sockfd, buf);
 }
 
+static int host_connect(int *tcpfd, char *buf)
+{/* Open tcp socket connection, and fork reader process */
+	strncpy(host, buf, PIPE_BUF);
+	// Change the root channel's name to the new host
+	free(channels->name);
+	channels->name = strdup(host);
+	if (socket_connect(host, tcpfd, port) == 0) {
+		fork_reader(tcpfd);
+		login(tcpfd);
+		return 0;
+	}
+	return 1;
+}
+
 int daemonize() 
 {/* Fork the process, detach from terminal, and redirect std streams */
 	switch (fork()) { 
@@ -280,39 +292,39 @@ int daemonize()
 
 int main(int argc, char *argv[]) 
 {
-	int i, j; // Looping ints
-	int verbose = 0;
-
-	// tcp socket for irc
-	int tcpfd = 0;
-
-	if (argc > 1) {
-		for(i = 1; (i < argc) && (argv[i][0] == '-'); i++) {
-			switch (argv[i][1]) {
-			case 'h': usage(); break;
-			case 'v': for (j = 1; argv[i][j] && argv[i][j] == 'v'; j++) verbose++; break;
-			case 'p': port = strtol(argv[++i], NULL, 10); break;
-			case 'd': daemonize(); break;
-			default: usage();
-			}
-		}
-	}
-
 	// Ignore sigpipes, they're handled internally
 	signal(SIGPIPE, SIG_IGN);
 
 	// Head channel
 	channels = (Channel*)calloc(1, sizeof(Channel));
+	channels->name = strdup(host);
+
+	// Looping ints
+	int i, j;
+	int verbose = 0;
+
+	// tcp socket for irc
+	int tcpfd = 0;
+
+	// Message buffers. out & buf are used for host communication, message for client
+	char out[PIPE_BUF], buf[PIPE_BUF], message[PIPE_BUF];
+
+	if (argc > 1) {
+		for(i = 1; (i < argc) && (argv[i][0] == '-'); i++) {
+			switch (argv[i][1]) {
+			case 'h': usage(); break; // help message
+			case 'v': for (j = 1; argv[i][j] && argv[i][j] == 'v'; j++) verbose++; break; //verbosity
+			case 'p': port = strtol(argv[++i], NULL, 10); break; // daemon port
+			case 'd': daemonize(); break; // daemonize the process
+			case 'c': host_connect(&tcpfd, argv[++i]); break; // irc server host
+			default: usage();
+			}
+		}
+	}
 
 	// Communication socket for clients
 	int unixfd;
 	socket_bind(socketpath, &unixfd);
-
-	// Message buffers
-	char out[PIPE_BUF], buf[PIPE_BUF];
-
-	// Message buffer for client communication
-	char message[PIPE_BUF] = "";
 
 	char actmode = 0; // Which mode to operate on
 	int fd; // File descriptor for local socket and process id
@@ -396,17 +408,14 @@ int main(int argc, char *argv[])
 			if (ping(&tcpfd, "", PIPE_BUF) > 0) {
 				snprintf(message, PIPE_BUF, "irccd: Already connected to %s\n", host);
 				fprintf(stderr, message);
+				break;
+			}
+			if (host_connect(&tcpfd, buf)) {
+				snprintf(message, PIPE_BUF, "Could not connect to %s\n", host);
+				fprintf(stderr, "irccd: %s", message);
 			} else {
-				strncpy(host, buf, PIPE_BUF);
-				if (socket_connect(host, &tcpfd, port) == 0) {
-					fork_reader(&tcpfd);
-					login(&tcpfd);
-					snprintf(message, PIPE_BUF, "Connected to %s\n", host);
-					fprintf(stderr, "irccd: %s", message);
-				} else {
-					snprintf(message, PIPE_BUF, "Could not connect to %s\n", host);
-					fprintf(stderr, "irccd: %s", message);
-				}
+				snprintf(message, PIPE_BUF, "Connected to %s\n", host);
+				fprintf(stderr, "irccd: %s", message);
 			}
 			break;
 		case PING_MOD:
@@ -434,8 +443,7 @@ int main(int argc, char *argv[])
 			sleep(1);
 			break;
 		}
-		// Finally send and free message
-
+		// Finally send and message
 		send(fd, message, strnlen(message, PIPE_BUF), 0);
 		close(fd);
 	}
