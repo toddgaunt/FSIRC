@@ -2,7 +2,7 @@
 "default":
     {
     "default_host":"162.213.39.42",
-	"default_channel":"Y35chan",
+	"default_channel":"#Y35chan",
     "saved_hosts":{"freenode":"162.213.39.42"},
     "saved_channels":["#Y35chan", "#lainchan"]
     },

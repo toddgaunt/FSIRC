@@ -246,7 +246,7 @@ int chan_namecheck(char *name)
 static int ping(int *sockfd, char *buf, int len) 
 {/* Sends ping message to irc server */
 	char out[len];
-	snprintf(out, len-10, "PING: %s\r\n", buf);
+	snprintf(out, len-8, "PING: %s\r\n", buf);
 	return send_msg(sockfd, out);
 }
 
@@ -308,7 +308,6 @@ int main(int argc, char *argv[])
 
 	// Head channel
 	channels = (Channel*)calloc(1, sizeof(Channel));
-	channels->name = strdup("root");
 
 	// Communication socket for clients
 	int unixfd;
@@ -375,10 +374,10 @@ int main(int argc, char *argv[])
 		case WRITE_MOD:
 			snprintf(out, PIPE_BUF, "PRIVMSG %s\r\n", buf);
 			if (send_msg(&tcpfd, out)) {
-				snprintf(message, PIPE_BUF, "%s Message sent successfully\n", buf);
+				strcpy(message, "Message sent successfully\n");
 				fprintf(stderr, "irccd: %s", message);
 			} else {
-				snprintf(message, PIPE_BUF, "Message could not be sent\n");
+				strcpy(message, "Message could not be sent\n");
 				fprintf(stderr, "irccd: %s", message);
 			}
 			break;
@@ -391,10 +390,10 @@ int main(int argc, char *argv[])
 			snprintf(out, PIPE_BUF, "NICK %s\r\n", buf);
 			if (send_msg(&tcpfd, out)) {
 				strncpy(nick, buf, NICK_LEN);
-				snprintf(message, PIPE_BUF, "Nickname changed successfully\n");
+				strcpy(message, "Nickname changed successfully\n");
 				fprintf(stderr, "irccd: %s", message);
 			} else {
-				snprintf(message, PIPE_BUF, "Nickname could not be changed\n");
+				strcpy(message, "Nickname could not be changed\n");
 				fprintf(stderr, "irccd: %s", message);
 			}
 			break;
@@ -424,10 +423,10 @@ int main(int argc, char *argv[])
 			if (ping(&tcpfd, "", PIPE_BUF) >= 0) {
 				send_msg(&tcpfd, "QUIT: irccd\r\n");
 				close(tcpfd);
-				snprintf(message, PIPE_BUF, "Successfully disconnected socket\n");
+				strcpy(message, "Successfully disconnected socket\n");
 				fprintf(stderr, "irccd: %s", message);
 			} else {
-				snprintf(message, PIPE_BUF, "Cannot disconnect socket\n");
+				strcpy(message, "Cannot disconnect socket\n");
 				fprintf(stderr, "irccd: %s", message);
 			}
 			break;
@@ -435,7 +434,7 @@ int main(int argc, char *argv[])
 			quit(pid);
 			break;
 		default:
-			snprintf(message, PIPE_BUF, "Invalid command\n");
+			strcpy(message, "Invalid command\n");
 			fprintf(stderr, "irccd: %s", message);
 			sleep(1);
 			break;
