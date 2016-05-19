@@ -68,12 +68,7 @@ int log_msg(char *buf)
 
 int send_msg(int *sockfd, char *buf)
 {/* Send message to socket, max size is PIPE_BUF*/
-	char *c;
-	int i;
-	// Find the length of the message that needs to be sent
-	for (c=buf, i = 0; *c != '\0' && i < PIPE_BUF; c++, i++);
-
-	int n = send(*sockfd, buf, i, 0);
+	int n = send(*sockfd, buf, strnlen(buf, PIPE_BUF), 0);
 	if (n > 0) {
 		printf("irccd: out: %s", buf);
 	} else {
@@ -345,7 +340,7 @@ int main(int argc, char *argv[])
 			snprintf(out, PIPE_BUF, "JOIN %s\r\n", buf);
 			if (send_msg(&tcpfd, out) > 0) {
 				add_chan(buf);
-				snprintf(message, PIPE_BUF, "%s was added successfully\n", buf);
+				snprintf(message, PIPE_BUF, "%s was joined successfully\n", buf);
 				fprintf(stderr, "irccd: %s", message);
 			} else {
 				snprintf(message, PIPE_BUF, "%s was not added\n", buf);
@@ -440,7 +435,8 @@ int main(int argc, char *argv[])
 			break;
 		}
 		// Finally send and free message
-		send(fd, message, PIPE_BUF, 0);
+
+		send(fd, message, strnlen(message, PIPE_BUF), 0);
 		close(fd);
 	}
 	quit(pid);
