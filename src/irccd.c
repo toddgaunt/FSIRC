@@ -219,7 +219,7 @@ int rm_chan(char *chan_name)
 }
 
 void list_chan()
-{/* Puts a string of all channels into *buf */
+{/* Puts a string of all channels into message */
 	int len = PIPE_BUF;
 	memset(message, 0, len);
 	Channel *tmp = channels;
@@ -228,6 +228,24 @@ void list_chan()
 		tmp = tmp->next;
 	} while (strnlen(message, len) < len - CHAN_LEN -1 && tmp != NULL);
 	sprintf(message, "%s\n", message);
+}
+
+int list_chan_alloc(char *message)
+{/* Allocs a string of all channels into message */
+	int len = 0;
+	Channel *tmp = channels;
+	do {
+		len = len + CHAN_LEN;
+		message = realloc(message, len + 1);
+		if(!message) {
+			printf("irccd: Cannot allocate memory");
+			return -1;
+		}
+		snprintf(message, len, "%s%s->", message, tmp->name);
+		tmp = tmp->next;
+	} while (tmp != NULL);
+	sprintf(message, "%s\n", message);
+	return 0;
 }
 
 int chan_namecheck(char *name) 
@@ -403,6 +421,7 @@ int main(int argc, char *argv[])
 			break;
 		}
 		send(fd, message, PIPE_BUF, 0);
+		//free(message);
 		close(fd);
 	}
 	quit(pid);
