@@ -29,21 +29,34 @@
 /* - - - - - - - */
 #include "irccd.h"
 
-static struct Channel *channels = NULL;          /* Head of the connected channels list */
-static char host[IP_LEN] = "nothing";                        /* String containing server address */
-static char socketpath[_POSIX_PATH_MAX] = "/tmp/irccd.socket";         /* Path to socket on filesystem */
-static char logpath[_POSIX_PATH_MAX] = "/tmp/irccd.log";            /* Path to socket on filesystem */
-static unsigned short port = SERVER_PORT;               /* Port to connect with */
+static struct Channel *channels = NULL; // Head of the connected channels list
+static char socketpath[_POSIX_PATH_MAX] = "/tmp/irccd.socket"; // Path to socket on filesystem
+static char logpath[_POSIX_PATH_MAX] = "/tmp/irccd.log"; // Path to socket on filesystem
+static int pid; // Process id
+
+// Buffer for storing messages to be sent back to client
+static char message[PIPE_BUF];
 
 // Might change during operation
-static char nick[NICK_LEN] = "iwakura_lain";                      /* User nickname */
-static char realname[NICK_LEN] = "Todd G.";                  /* User nickname */
+static char nick[NICK_LEN] = "iwakura_lain"; // User nickname
+static char realname[NICK_LEN] = "Todd G."; // Real user name
+static char host[PIPE_BUF] = "nothing"; // String containing server address
+static unsigned short port = SERVER_PORT; // Port to connect with 
 
 static void usage()
 {
 	fprintf(stderr, "irccd - irc client daemon - %s\n"
 		"usage: irccd [-h] [-v] [-d]\n", VERSION);
 	exit(EXIT_FAILURE);
+}
+
+static void quit(int pid)
+{/* Quit the program and clean up child process with pid */
+	if (pid != 0) {
+		kill(pid, SIGTERM);
+		pid = 0;
+	}
+	exit(EXIT_SUCCESS);
 }
 
 int log_msg(char *buf)
@@ -56,9 +69,14 @@ int log_msg(char *buf)
 	return 0;
 }
 
-int send_msg(int sockfd, char *buf)
+int send_msg(int *sockfd, char *buf)
 {/* Send message to socket, max size is PIPE_BUF*/
-	int n = send(sockfd, buf, PIPE_BUF, 0);
+	char *c;
+	int i;
+	// Find the length of the message that needs to be sent
+	for (c=buf, i = 0; *c != '\0' && i < PIPE_BUF; c++, i++);
+
+	int n = send(*sockfd, buf, i, 0);
 	if (n > 0) {
 		printf("irccd: out: %s", buf);
 	} else {
@@ -68,24 +86,21 @@ int send_msg(int sockfd, char *buf)
 	return n;
 }
 
-int read_line(int sockfd, char *recvline, int len)
+int read_line(int *sockfd, char *recvline, int len)
 {/* Read chars from socket until a newline */
 	int i = 0;
 	char c;
 	do {
-		if (read(sockfd, &c, sizeof(char)) != sizeof(char)) {
+		if (read(*sockfd, &c, sizeof(char)) != sizeof(char)) {
 			perror("irccd: Unable to read socket");
 			return -1;
 		}
 		recvline[i++] = c;
 	} while (c != '\n' && i < len);
-	recvline[i-1] = '\0'; // gets rid of the '\n'
+	recvline[i-1] = '\0'; // truncates message (usually ending in \n) with null byte
+	printf("irccd: in: %s\n", recvline);
+	log_msg(recvline);
 	return 0;
-}
-
-int resolve_host(char *ip, char *hostname)
-{/* Resolve hostnames to ip addresses */
-	return -1;
 }
 
 int socket_connect(char *host, int *sockfd, int port)
@@ -139,9 +154,9 @@ int socket_bind(const char *path, int *sockfd)
 	return 0;
 }
 
-int fork_reader(int sockfd)
+int fork_reader(int *sockfd)
 {/* Fork process to constantly read from irc socket */
-	int pid = fork(); 
+	pid = fork(); 
 	if (pid != 0) {
 		return pid;
 	}
@@ -151,12 +166,13 @@ int fork_reader(int sockfd)
 			fprintf(stderr, "irccd(reader): Quit, connection dropped\n");
 			exit(EXIT_FAILURE);
 		} else { 
-			printf("irccd: in: %s\n", recvline);
-			log_msg(recvline);
 			if (recvline[1] == 'I') {
 				recvline[1] = 'O'; // Swaps ping 'I' to 'O' in "PING"
+				send_msg(sockfd, recvline);
 			}
 		}
+		// If parent died (aka init is parent), exit
+		if (getppid() == 1) exit(EXIT_FAILURE);
 	}
 }
 
@@ -202,56 +218,45 @@ int rm_chan(char *chan_name)
 	return -1;
 }
 
-void list_chan(char *buf, int len)
+void list_chan()
 {/* Puts a string of all channels into *buf */
-	memset(buf, 0, len);
+	int len = PIPE_BUF;
+	memset(message, 0, len);
 	Channel *tmp = channels;
 	for (tmp = channels; tmp; tmp = tmp->next) {
 		// Add another name only if buf can hold another channel name
-		if (strlen(buf) < len - CHAN_LEN - 1) {
-			sprintf(buf, "%s%s->", buf, tmp->name);
+		if (strnlen(message, CHAN_LEN) < len - CHAN_LEN - 1) {
+			sprintf(message, "%s%s->", message, tmp->name);
 		} else break;
 	}
-	sprintf(buf, "%s\n", buf);
+	sprintf(message, "%s\n", message);
 }
 
-int chan_namecheck(const char *name) 
+int chan_namecheck(char *name) 
 {/* Performs checks to make sure the string is a channel name */
+	char *p;
+	int i; 
 	if (name[0] != '#') {
-		fprintf(stderr, "irccd: %s is not a valid channel name\n", name);
 		return 1;
 	}
+	for (p = name, i = 0; *p != '\0' && i < NICK_LEN; p++, i++);
+	if (i >= NICK_LEN) return 2;
 	return 0;
 }
 
-static int ping(int sockfd, char *buf) 
-{
-	// Uses static msg buffer
-	char out[PIPE_BUF];
-	snprintf(out, PIPE_BUF, "PING: %s\r\n", buf);
+static int ping(int *sockfd, char *buf, int len) 
+{/* Sends ping message to irc server */
+	char out[len];
+	snprintf(out, len, "PING: %s\r\n", buf);
 	return send_msg(sockfd, out);
 }
 
-static void login(int sockfd)
-{
-	// Uses static msg buffer
-	int size = (NICK_LEN * 3) + 32;
-	char buf[size];
-	snprintf(buf, size, "USER %s 8 * :%s\r\nNICK %s\r\n", nick, realname, nick);
+static void login(int *sockfd)
+{/* Send login and user message to irc server. */
+	int len = (NICK_LEN * 3) + 32;
+	char buf[len];
+	snprintf(buf, len, "USER %s 8 * :%s\r\nNICK %s\r\n", nick, realname, nick);
 	send_msg(sockfd, buf);
-}
-
-void quit_cmd(int pid)
-{
-	if (pid != 0) {
-		kill(pid, SIGTERM);
-		pid = 0;
-	}
-	exit(EXIT_SUCCESS);
-}
-
-int handle_client_input() {
-	return -1;
 }
 
 int daemonize() 
@@ -281,8 +286,11 @@ int daemonize()
 
 int main(int argc, char *argv[]) 
 {
-	int i, j;
+	int i, j; // Looping ints
 	int verbose = 0;
+
+	// tcp socket for irc
+	int tcpfd = 0;
 
 	if (argc > 1) {
 		for(i = 1; (i < argc) && (argv[i][0] == '-'); i++) {
@@ -295,130 +303,113 @@ int main(int argc, char *argv[])
 			}
 		}
 	}
+
 	// Ignore sigpipes, they're handled internally
 	signal(SIGPIPE, SIG_IGN);
-
-	// Name of channel last used to connect to, outgoing messages get sent here.
-    char chan_name[CHAN_LEN] = "#Y35chan";
-
-	// Message buffers for sending and recieving 
-	char message[PIPE_BUF];
-	char buf[PIPE_BUF];
-	char out[PIPE_BUF]; // Buffer for when we want to preserve buf
-	char *ping_msg = "irccd";
-
-	// sockets
-	int tcpfd;  // tcp for irc
-	int unixfd; // unix for clients
-	socket_bind(socketpath, &unixfd);
 
 	// Head channel
 	channels = (Channel*)calloc(1, sizeof(Channel));
 
-	// File descriptor for unix socket
-	int fd;
-	int pid = 0;
+	// Communication socket for clients
+	int unixfd;
+	socket_bind(socketpath, &unixfd);
 
-	char actmode = 0; /* Which mode to operate on */
+	// Current channel 
+	char chan_name[NICK_LEN];
+
+	// Message buffers
+	char out[PIPE_BUF], buf[PIPE_BUF];
+
+	char actmode = 0; // Which mode to operate on
+	int fd; // File descriptor for local socket and process id
+
 	listen(unixfd, 5); // Start listening for connections
+	// Main loop
 	while(1) {
 		fd = accept(unixfd, 0, 0);
-		read_line(fd, buf, PIPE_BUF); 
-		actmode = buf[0];
+		read_line(&fd, buf, PIPE_BUF); 
+		actmode = buf[0]; // Store the beginning char which determines the switch
 		fprintf(stdout, "irccd: mode: %c\n", actmode);
 
 		for (i=0; i<sizeof(buf)-1; i++) {
 			buf[i] = buf[i+1]; // Stores the message seperately from actcode
 		}
-		buf[i-1] = '\0';
+		buf[i-1] = '\0'; // Messages are sent with a '\n' at the end, replace that newline with \0.
 		switch (actmode) {
 		case JOIN_MOD:
 			if (chan_namecheck(buf) != 0) {
+				fprintf(stderr, "irccd: %s is not a valid channel name\n", buf);
 				break;
 			}
-			// Extract the name from buf
-			strcpy(chan_name, buf);
-			snprintf(out, sizeof(out), "JOIN %s\r\n", chan_name);
-			if (send_msg(tcpfd, out) > 0) {
+			snprintf(out, PIPE_BUF, "JOIN %s\r\n", buf);
+			if (send_msg(&tcpfd, out) > 0) {
+				strncpy(chan_name, buf, NICK_LEN);
 				add_chan(chan_name);
 			}
 			break;
 		case PART_MOD:
-			// Must not modify chan_name
 			if (chan_namecheck(buf) != 0) {
+				fprintf(stderr, "irccd: %s is not a valid channel name\n", buf);
 				break;
 			}
-			snprintf(out, sizeof(out), "PART %s\r\n", buf);
-
-			if (send_msg(tcpfd, out) > 0) {
-				rm_chan(buf);
+			snprintf(out, PIPE_BUF, "PART %s\r\n", buf);
+			if (send_msg(&tcpfd, out) > 0) {
+				rm_chan(chan_name);
 			}
 			break;
-		case LIST_MOD:
-			snprintf(out, sizeof(out), "LIST %s\r\n", buf);
-			send_msg(tcpfd, out);
-			break;
 		case LIST_CHAN_MOD:
-			// Only communicates with local unix socket, not irc
-			list_chan(message, sizeof(message));
+			list_chan();
 			break;
 		case WRITE_MOD:
-			snprintf(out, sizeof(out), "PRIVMSG %s :%s\r\n", chan_name, buf);
-			send_msg(tcpfd, out);
+			snprintf(out, PIPE_BUF, "PRIVMSG %s :%s\r\n", chan_name, buf);
+			send_msg(&tcpfd, out);
 			break;
 		case NICK_MOD:
-			if (strcmp(nick, buf) == 0) {
+			if (strncmp(nick, buf, NICK_LEN) == 0) {
 				fprintf(stdout, "irccd: Nickname %s already in use "
 					"by this client\n", nick);
 				break;
 			} 
-			strcpy(nick, buf);
-			snprintf(out, sizeof(out), "NICK %s\r\n", nick);
-			send_msg(tcpfd, out);
+			strncpy(nick, buf, NICK_LEN);
+			snprintf(out, PIPE_BUF, "NICK %s\r\n", nick);
+			send_msg(&tcpfd, out);
 			break;
 		case CONN_MOD:
-			// Test if we're already connected somewhere
-			if (ping(tcpfd, ping_msg) > 0) {
-				snprintf(message, sizeof(message), "irccd: Already connected to %s\n", host);
+			if (ping(&tcpfd, "", PIPE_BUF) > 0) {
+				snprintf(message, PIPE_BUF, "irccd: Already connected to %s\n", host);
 				fprintf(stderr, message);
 			} else {
-				strcpy(host, buf);
-				printf("connectpls\n");
+				strncpy(host, buf, PIPE_BUF);
 				if (socket_connect(host, &tcpfd, port) != 0) {
-					break;
+					return -1;
 				}
-				pid = fork_reader(tcpfd);
-				login(tcpfd);
-				snprintf(message, sizeof(message), "irccd: Connected to %s\n", host);
+				fork_reader(&tcpfd);
+				login(&tcpfd);
+				snprintf(message, PIPE_BUF, "irccd: Connected to %s\n", host);
 			}
 			break;
 		case PING_MOD:
-			ping(tcpfd, ping_msg);
+			ping(&tcpfd, buf, PIPE_BUF);
 			break;
 		case DISC_MOD:
-			if (!tcpfd) {
-				send_msg(tcpfd, "QUIT: irccd\r\n");
-				if (!pid) {
-					kill(pid, SIGTERM); // Kills child reader
-					pid = 0; // Set pid to zero so this won't kill main if invoked again
-				}
+			if (ping(&tcpfd, "", PIPE_BUF) >= 0) {
+				send_msg(&tcpfd, "QUIT: irccd\r\n");
 				close(tcpfd);
 			} else {
+				snprintf(message, PIPE_BUF, "Cannot disconnect socket\n");
 				fprintf(stderr, "irccd: Cannot disonnect socket: No connected socket\n");
 			}
-			tcpfd = 0; // Zero signifies non-existent socket
 			break;
 		case QUIT_MOD:
-			quit_cmd(pid);
+			quit(pid);
 			break;
 		default:
 			printf("irccd: Invalid command\n");
 			sleep(1);
 			break;
 		}
-		// Sends result of commands back to client
-		send(fd, message, sizeof(message), 0);
+		send(fd, message, PIPE_BUF, 0);
 		close(fd);
 	}
-	quit_cmd(pid);
+	quit(pid);
 }
