@@ -223,12 +223,10 @@ void list_chan()
 	int len = PIPE_BUF;
 	memset(message, 0, len);
 	Channel *tmp = channels;
-	for (tmp = channels; tmp; tmp = tmp->next) {
-		// Add another name only if buf can hold another channel name
-		if (strnlen(message, CHAN_LEN) < len - CHAN_LEN - 1) {
-			sprintf(message, "%s%s->", message, tmp->name);
-		} else break;
-	}
+	do {
+		snprintf(message, len, "%s%s->", message, tmp->name);
+		tmp = tmp->next;
+	} while (strnlen(message, len) < len - CHAN_LEN -1 && tmp != NULL);
 	sprintf(message, "%s\n", message);
 }
 
@@ -314,9 +312,6 @@ int main(int argc, char *argv[])
 	int unixfd;
 	socket_bind(socketpath, &unixfd);
 
-	// Current channel 
-	char chan_name[NICK_LEN];
-
 	// Message buffers
 	char out[PIPE_BUF], buf[PIPE_BUF];
 
@@ -343,8 +338,7 @@ int main(int argc, char *argv[])
 			}
 			snprintf(out, PIPE_BUF, "JOIN %s\r\n", buf);
 			if (send_msg(&tcpfd, out) > 0) {
-				strncpy(chan_name, buf, NICK_LEN);
-				add_chan(chan_name);
+				add_chan(buf);
 			}
 			break;
 		case PART_MOD:
@@ -354,14 +348,14 @@ int main(int argc, char *argv[])
 			}
 			snprintf(out, PIPE_BUF, "PART %s\r\n", buf);
 			if (send_msg(&tcpfd, out) > 0) {
-				rm_chan(chan_name);
+				rm_chan(buf);
 			}
 			break;
 		case LIST_CHAN_MOD:
 			list_chan();
 			break;
 		case WRITE_MOD:
-			snprintf(out, PIPE_BUF, "PRIVMSG %s :%s\r\n", chan_name, buf);
+			snprintf(out, PIPE_BUF, "PRIVMSG %s\r\n", buf);
 			send_msg(&tcpfd, out);
 			break;
 		case NICK_MOD:

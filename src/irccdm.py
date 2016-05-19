@@ -66,6 +66,10 @@ def cmd_write(args):
                         type = str, default = '',
                         help = 'Subcommand to be run [message | msg]')
 
+    parser.add_argument('-c', '--channel', metavar='channel',
+                        type = str,
+                        help = 'Target Channel')
+
     parser.add_argument('-m', '--message', metavar = 'message',
                         type = str,
                         help = 'Message to be sent')
@@ -78,10 +82,14 @@ def cmd_write(args):
     else:
         #TODO open up default editor so user can write a message
         msg = ""
+    if write_args.channel:
+        channel = write_args.channel
+    else:
+        channel = conf["default_channel"]
 
     if command == "message" or command == "msg":
         sock = socket_connect(args.sockpath)
-        socket_send(sock, 'w' + msg)
+        socket_send(sock, 'w' + channel + ' :' + msg)
         print(cstr(socket_recv(sock)))
     else:
         invalid_cmd()
