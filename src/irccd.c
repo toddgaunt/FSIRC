@@ -8,7 +8,6 @@
  * it will auto-save messages for you
  * and can be called from the command line
  * to send messages to the specified channel.
- *
  */
 
 #include <arpa/inet.h> 
@@ -72,7 +71,7 @@ int log_msg(char *buf)
 int send_msg(int *sockfd, char *buf, int len)
 {/* Send message to socket, max size is IRC_BUF_MAX, last two chars must be \r and \n 
   * or they will be replaced */
-	if (len > IRC_BUF_MAX) return 1;
+	if (len > IRC_BUF_MAX) return -1;
 	if (buf[len-1] != '\n' || buf[len-2] !='\r') {
 		buf[len -2] = '\r';
 		buf[len-1] = '\n';
@@ -324,6 +323,29 @@ int daemonize()
 
 int main(int argc, char *argv[]) 
 {
+	// Looping ints
+	int i, j;
+
+	if (argc > 1) {
+		for(i = 1; (i < argc) && (argv[i][0] == '-'); i++) {
+			switch (argv[i][1]) {
+			case 'h': usage(); break; // help message
+			case 'v': for (j = 1; argv[i][j] && argv[i][j] == 'v'; j++) {
+						  verbose++; 
+					  }
+					  break;
+			case 'q': for (j = 1; argv[i][j] && argv[i][j] == 'q'; j++) {
+						  if (verbose > 0) verbose--; 
+					  }
+					  break;
+			case 'p': port = strtol(argv[++i], NULL, 10); break; // daemon port
+			case 'n': strncpy(nick, argv[++i], NICK_LEN); break; // daemon port
+			case 'd': daemonize(); break; // daemonize the process
+			default: usage();
+			}
+		}
+	}
+
 	// Ignore sigpipes, they're handled internally
 	signal(SIGPIPE, SIG_IGN);
 
@@ -331,8 +353,8 @@ int main(int argc, char *argv[])
 	channels = (Channel*)malloc(sizeof(Channel));
 	channels->name = strdup(host);
 
-	// Looping ints
-	int i, j;
+	char actmode = 0; // Which mode to operate on
+	int fd; // File descriptor for local socket
 
 	// tcp socket for irc
 	int tcpfd = 0;
@@ -350,30 +372,6 @@ int main(int argc, char *argv[])
 	short msglen;
 
 	char out[IRC_BUF_MAX];
-
-	if (argc > 1) {
-		for(i = 1; (i < argc) && (argv[i][0] == '-'); i++) {
-			switch (argv[i][1]) {
-			case 'h': usage(); break; // help message
-			case 'v': for (j = 1; argv[i][j] && argv[i][j] == 'v'; j++) {
-						  verbose++; 
-					  }
-					  break;
-			case 'q': for (j = 1; argv[i][j] && argv[i][j] == 'q'; j++) {
-						  if (verbose > 0) verbose--; 
-					  }
-					  break;
-			case 'p': port = strtol(argv[++i], NULL, 10); break; // daemon port
-			case 'n': strncpy(nick, argv[++i], NICK_LEN); break; // daemon port
-			case 'd': daemonize(); break; // daemonize the process
-			case 'c': host_connect(&tcpfd, &unixfd, argv[++i]); break; // irc server host
-			default: usage();
-			}
-		}
-	}
-
-	char actmode = 0; // Which mode to operate on
-	int fd; // File descriptor for local socket
 
 	listen(unixfd, 5); // Start listening for connections
 	// Main loop
@@ -440,7 +438,7 @@ int main(int argc, char *argv[])
 			break;
 		case WRITE_MOD:
 			recvlen = snprintf(out, IRC_BUF_MAX, "PRIVMSG %s\r\n", recvline);
-			if (send_msg(&tcpfd, out, recvlen)) {
+			if (send_msg(&tcpfd, out, recvlen) > 0) {
 				strcpy(message, "Message sent successfully\n");
 				fprintf(stderr, "irccd: %s", message);
 			} else {
@@ -463,8 +461,7 @@ int main(int argc, char *argv[])
 			}
 			break;
 		case CONN_MOD:
-			
-			if (ping(&tcpfd, "", 0) > 0) {
+			if (ping(&tcpfd, "", 0) >= 0) {
 				msglen = snprintf(message, IRC_BUF_MAX, "Already connected to a %s\n", host);
 				fprintf(stderr, "irccd: %s", message);
 				break;
