@@ -30,12 +30,13 @@
 static struct Channel *channels = NULL; // Head of the connected channels list
 static char socketpath[_POSIX_PATH_MAX] = "/tmp/irccd.socket"; // Path to socket on filesystem
 static char logpath[_POSIX_PATH_MAX] = "/tmp/irccd.log"; // Path to socket on filesystem
+static int verbose; // Verbosity count
 static int pid; // Process id
 
 // Might change during operation
 static char nick[NICK_LEN] = "iwakura_lain"; // User nickname
 static char realname[NICK_LEN] = "Todd G."; // Real user name
-static char host[PIPE_BUF] = "nothing"; // String containing server address
+static char host[IRC_BUF_MAX] = "nothing"; // String containing server address
 static unsigned short port = SERVER_PORT; // Port to connect with 
 
 static void usage()
@@ -45,7 +46,7 @@ static void usage()
 	exit(EXIT_FAILURE);
 }
 
-static void quit(int pid)
+static void quit()
 {/* Quit the program and clean up child process with pid */
 	if (pid != 0) {
 		kill(pid, SIGTERM);
@@ -64,11 +65,12 @@ int log_msg(char *buf)
 	return 0;
 }
 
-int send_msg(int *sockfd, char *buf)
-{/* Send message to socket, max size is PIPE_BUF*/
-	int n = send(*sockfd, buf, strnlen(buf, PIPE_BUF), 0);
+int send_msg(int *sockfd, char *buf, int len)
+{/* Send message to socket, max size is IRC_BUF_MAX*/
+	// Truncate the message with proper irc message end
+	int n = send(*sockfd, buf, len, 0);
 	if (n > 0) {
-		printf("irccd: out: %s", buf);
+		fprintf(stdout, "irccd: out: %s\n", buf);
 	} else {
 		perror("irccd");
 	}
@@ -81,16 +83,40 @@ int read_line(int *sockfd, char *recvline, int len)
 	int i = 0;
 	char c;
 	do {
-		if (read(*sockfd, &c, sizeof(char)) != sizeof(char)) {
+		if (recv(*sockfd, &c, sizeof(char), 0) != sizeof(char)) {
 			perror("irccd: Unable to read socket");
 			return -1;
 		}
 		recvline[i++] = c;
 	} while (c != '\n' && i < len);
-	recvline[i-1] = '\0'; // truncates message (usually ending in \n) with null byte
-	printf("irccd: in: %s\n", recvline);
+	recvline[i-1] = '\0'; // truncates message (usually ending in "\r\n") with null byte
+	fprintf(stdout, "irccd: in: %s\n", recvline);
 	log_msg(recvline);
-	return 0;
+	return i-1; // Length of the string including '\0'
+}
+
+int fork_reader(int *sockfd, int *unixfd)
+{/* Fork process to constantly read from irc socket */
+	pid = fork(); 
+	if (pid != 0) {
+		return pid;
+	}
+	int len;
+	char recvline[IRC_BUF_MAX];
+	while(1) {
+		len = read_line(sockfd, recvline, IRC_BUF_MAX);
+		if(len == -1) {
+			fprintf(stderr, "irccd(reader): Quit, connection dropped\n");
+			exit(EXIT_FAILURE);
+		}
+		// PONG the server
+		if (recvline[1] == 'I') {
+			recvline[1] = 'O'; // Swaps ping 'I' to 'O' in "PING"
+			send_msg(sockfd, recvline, len);
+		}
+		// If parent died (aka init is parent), exit
+		if (getppid() == 1) exit(EXIT_FAILURE);
+	}
 }
 
 int socket_connect(char *host, int *sockfd, int port)
@@ -108,7 +134,7 @@ int socket_connect(char *host, int *sockfd, int port)
 	}
 	// Convert ip address to usable bytes
 	if (inet_pton(AF_INET, host, &servaddr.sin_addr) <= 0) {
-		perror("irccd: cannot transform ip");
+		fprintf(stderr, "irccd: cannot transform ip\n");
 		return 1;
 	}
 	// Points sockaddr pointer to servaddr because connect takes sockaddr structs
@@ -144,56 +170,34 @@ int socket_bind(const char *path, int *sockfd)
 	return 0;
 }
 
-int fork_reader(int *sockfd)
-{/* Fork process to constantly read from irc socket */
-	pid = fork(); 
-	if (pid != 0) {
-		return pid;
-	}
-	char recvline[PIPE_BUF];
-	while(1) {
-		if (read_line(sockfd, recvline, PIPE_BUF) != 0) {
-			fprintf(stderr, "irccd(reader): Quit, connection dropped\n");
-			exit(EXIT_FAILURE);
-		} else { 
-			if (recvline[1] == 'I') {
-				recvline[1] = 'O'; // Swaps ping 'I' to 'O' in "PING"
-				send_msg(sockfd, recvline);
-			}
-		}
-		// If parent died (aka init is parent), exit
-		if (getppid() == 1) exit(EXIT_FAILURE);
-	}
-}
-
-int add_chan(char *chan_name)
+int add_chan(char *name)
 {/* Add a channel to end of list */
 	Channel *tmp = channels;
 	while (tmp->next) {
 		tmp = tmp->next;
 		// If the named channel is already in the list, stop
-		if (strcmp(tmp->name, chan_name) == 0) {
+		if (strcmp(tmp->name, name) == 0) {
 			return 1;
 		}
 	}
-	tmp->next = (Channel *)calloc(1, sizeof(Channel)); 
+	tmp->next = (Channel *)malloc(sizeof(Channel)); 
 	tmp = tmp->next; 
 	if (!tmp) {
 		printf("irccd: Cannot allocate memory");
 		return -1;
 	}
-	tmp->name = strdup(chan_name); // mallocs then strcpy
+	tmp->name = strdup(name); // mallocs then strcpy
 	tmp->next = NULL;
 
 	return 0;
 }
 
-int rm_chan(char *chan_name)
-{/* Remove an entry with chan_name from list */
+int rm_chan(char *name)
+{/* Remove an entry with name from list */
 	Channel *garbage;
 	Channel *tmp = channels;
 	while (tmp->next) {
-		if (strcmp(tmp->next->name, chan_name) == 0) {
+		if (strcmp(tmp->next->name, name) == 0) {
 			garbage = tmp->next; 
 			tmp->next = tmp->next->next;
 
@@ -240,7 +244,7 @@ static int ping(int *sockfd, char *buf, int len)
 {/* Sends ping message to irc server */
 	char out[len];
 	snprintf(out, len-8, "PING: %s\r\n", buf);
-	return send_msg(sockfd, out);
+	return send_msg(sockfd, out, len);
 }
 
 static void login(int *sockfd)
@@ -248,17 +252,17 @@ static void login(int *sockfd)
 	int len = (NICK_LEN * 3) + 32;
 	char buf[len];
 	snprintf(buf, len, "USER %s 8 * :%s\r\nNICK %s\r\n", nick, realname, nick);
-	send_msg(sockfd, buf);
+	send_msg(sockfd, buf, len);
 }
 
-static int host_connect(int *tcpfd, char *buf)
+static int host_connect(int *tcpfd, int *unixfd, char *buf)
 {/* Open tcp socket connection, and fork reader process */
-	strncpy(host, buf, PIPE_BUF);
+	strncpy(host, buf, IRC_BUF_MAX);
 	// Change the root channel's name to the new host
 	free(channels->name);
 	channels->name = strdup(host);
 	if (socket_connect(host, tcpfd, port) == 0) {
-		fork_reader(tcpfd);
+		fork_reader(tcpfd, unixfd);
 		login(tcpfd);
 		return 0;
 	}
@@ -296,18 +300,25 @@ int main(int argc, char *argv[])
 	signal(SIGPIPE, SIG_IGN);
 
 	// Head channel
-	channels = (Channel*)calloc(1, sizeof(Channel));
+	channels = (Channel*)malloc(sizeof(Channel));
 	channels->name = strdup(host);
 
 	// Looping ints
 	int i, j;
-	int verbose = 0;
 
 	// tcp socket for irc
 	int tcpfd = 0;
 
-	// Message buffers. out & buf are used for host communication, message for client
-	char out[PIPE_BUF], buf[PIPE_BUF], message[PIPE_BUF];
+	// Communication socket for clients
+	int unixfd;
+	socket_bind(socketpath, &unixfd);
+
+	// Recving buffer from client
+	char recvline[IRC_BUF_MAX];
+	int recvlen;
+
+	// Message buffers. out for irc,  message for client
+	char out[IRC_BUF_MAX], message[IRC_BUF_MAX];
 
 	if (argc > 1) {
 		for(i = 1; (i < argc) && (argv[i][0] == '-'); i++) {
@@ -316,15 +327,11 @@ int main(int argc, char *argv[])
 			case 'v': for (j = 1; argv[i][j] && argv[i][j] == 'v'; j++) verbose++; break; //verbosity
 			case 'p': port = strtol(argv[++i], NULL, 10); break; // daemon port
 			case 'd': daemonize(); break; // daemonize the process
-			case 'c': host_connect(&tcpfd, argv[++i]); break; // irc server host
+			case 'c': host_connect(&tcpfd, &unixfd, argv[++i]); break; // irc server host
 			default: usage();
 			}
 		}
 	}
-
-	// Communication socket for clients
-	int unixfd;
-	socket_bind(socketpath, &unixfd);
 
 	char actmode = 0; // Which mode to operate on
 	int fd; // File descriptor for local socket and process id
@@ -333,54 +340,43 @@ int main(int argc, char *argv[])
 	// Main loop
 	while(1) {
 		fd = accept(unixfd, 0, 0);
-		read_line(&fd, buf, PIPE_BUF); 
-		actmode = buf[0]; // Store the beginning char which determines the switch
-		fprintf(stdout, "irccd: mode: %c\n", actmode);
-
-		for (i=0; i<sizeof(buf)-1; i++) {
-			buf[i] = buf[i+1]; // Stores the message seperately from actcode
+		recvlen = read_line(&fd, recvline, IRC_BUF_MAX); 
+		if (recvlen == -1) {
+			fprintf(stderr, "irccd: error recieving message from client\n");
+			continue;
 		}
-		buf[i-1] = '\0'; // Messages are sent with a '\n' at the end, replace that newline with \0.
+		// Actmode determines which action the loop should do
+		actmode = recvline[0];
+		for (i=0; i<recvlen; i++) {
+			recvline[i] = recvline[i+1]; // Stores the message seperately from actcode
+		}
+		// Shorten the string
+		recvline[--i] = '\0';
 
 		switch (actmode) {
 		case JOIN_MOD:
-			if (chan_namecheck(buf) != 0) {
-				snprintf(message, PIPE_BUF, "%s is not a valid channel name\n", buf);
+			if (chan_namecheck(recvline) != 0) {
+				snprintf(message, IRC_BUF_MAX, "%s is not a valid channel name\n", recvline);
 				fprintf(stderr, "irccd %s", message);
 				break;
 			}
-			snprintf(out, PIPE_BUF, "JOIN %s\r\n", buf);
-			if (send_msg(&tcpfd, out) > 0) {
-				add_chan(buf);
-				snprintf(message, PIPE_BUF, "%s was joined successfully\n", buf);
+			recvlen = recvlen + snprintf(out, IRC_BUF_MAX, "JOIN %s\r\n", recvline);
+			if (send_msg(&tcpfd, out, recvlen + 6) > 0) {
+				add_chan(recvline);
+				snprintf(message, IRC_BUF_MAX, "%s was joined successfully\n", recvline);
 				fprintf(stderr, "irccd: %s", message);
 			} else {
-				snprintf(message, PIPE_BUF, "%s was not added\n", buf);
+				snprintf(message, IRC_BUF_MAX, "%s was not added\n", recvline);
 				fprintf(stderr, "irccd: %s", message);
 			}
 			break;
 		case PART_MOD:
-			if (chan_namecheck(buf) != 0) {
-				snprintf(message, PIPE_BUF, "%s is not a valid channel name\n", buf);
-				fprintf(stderr, "irccd: %s", message);
-				break;
-			}
-			snprintf(out, PIPE_BUF, "PART %s\r\n", buf);
-			if (send_msg(&tcpfd, out) > 0) {
-				rm_chan(buf);
-				snprintf(message, PIPE_BUF, "%s was removed successfully\n", buf);
-				fprintf(stderr, "irccd: %s", message);
-			} else {
-				snprintf(message, PIPE_BUF, "%s was not removed\n", buf);
-				fprintf(stderr, "irccd: %s", message);
-			}
-			break;
 		case LIST_CHAN_MOD:
-			list_chan(message, PIPE_BUF);
+			list_chan(message, IRC_BUF_MAX);
 			break;
 		case WRITE_MOD:
-			snprintf(out, PIPE_BUF, "PRIVMSG %s\r\n", buf);
-			if (send_msg(&tcpfd, out)) {
+			recvlen = recvlen + snprintf(out, IRC_BUF_MAX, "PRIVMSG %s\r\n", recvline);
+			if (send_msg(&tcpfd, out, recvlen)) {
 				strcpy(message, "Message sent successfully\n");
 				fprintf(stderr, "irccd: %s", message);
 			} else {
@@ -389,50 +385,24 @@ int main(int argc, char *argv[])
 			}
 			break;
 		case NICK_MOD:
-			if (strncmp(nick, buf, NICK_LEN) == 0) {
-				fprintf(stdout, "irccd: Nickname %s already in use "
-					"by this client\n", nick);
-				break;
-			} 
-			snprintf(out, PIPE_BUF, "NICK %s\r\n", buf);
-			if (send_msg(&tcpfd, out)) {
-				strncpy(nick, buf, NICK_LEN);
-				strcpy(message, "Nickname changed successfully\n");
-				fprintf(stderr, "irccd: %s", message);
-			} else {
-				strcpy(message, "Nickname could not be changed\n");
-				fprintf(stderr, "irccd: %s", message);
-			}
 			break;
 		case CONN_MOD:
-			if (ping(&tcpfd, "", PIPE_BUF) > 0) {
-				snprintf(message, PIPE_BUF, "irccd: Already connected to %s\n", host);
+			if (ping(&tcpfd, "", IRC_BUF_MAX) > 0) {
+				snprintf(message, IRC_BUF_MAX, "irccd: Already connected to %s\n", host);
 				fprintf(stderr, message);
 				break;
 			}
-			if (host_connect(&tcpfd, buf)) {
-				snprintf(message, PIPE_BUF, "Could not connect to %s\n", host);
+			if (host_connect(&tcpfd, &unixfd, recvline) != 0) {
+				snprintf(message, IRC_BUF_MAX, "Could not connect to %s\n", host);
 				fprintf(stderr, "irccd: %s", message);
 			} else {
-				snprintf(message, PIPE_BUF, "Connected to %s\n", host);
+				snprintf(message, IRC_BUF_MAX, "Connected to %s\n", host);
 				fprintf(stderr, "irccd: %s", message);
 			}
 			break;
 		case PING_MOD:
-			ping(&tcpfd, buf, PIPE_BUF);
-			snprintf(message, PIPE_BUF, "Pinged host: %s\n", host);
-			fprintf(stderr, "irccd: %s", message);
 			break;
 		case DISC_MOD:
-			if (ping(&tcpfd, "", PIPE_BUF) >= 0) {
-				send_msg(&tcpfd, "QUIT: irccd\r\n");
-				close(tcpfd);
-				strcpy(message, "Successfully disconnected socket\n");
-				fprintf(stderr, "irccd: %s", message);
-			} else {
-				strcpy(message, "Cannot disconnect socket\n");
-				fprintf(stderr, "irccd: %s", message);
-			}
 			break;
 		case QUIT_MOD:
 			quit(pid);
@@ -444,7 +414,7 @@ int main(int argc, char *argv[])
 			break;
 		}
 		// Finally send and message
-		send(fd, message, strnlen(message, PIPE_BUF), 0);
+		send(fd, message, strnlen(message, IRC_BUF_MAX), 0);
 		close(fd);
 	}
 	quit(pid);

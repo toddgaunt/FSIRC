@@ -18,6 +18,7 @@
 #define IP_LEN 32
 #define NICK_LEN 16
 #define PING_TIMEOUT 10
+#define IRC_BUF_MAX 512
 
 /* Command definitions */
 #define CONN_MOD 'c' // connect to a host

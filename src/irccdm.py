@@ -91,6 +91,10 @@ def cmd_write(args):
         sock = socket_connect(args.sockpath)
         socket_send(sock, 'w' + channel + ' :' + msg)
         print(cstr(socket_recv(sock)))
+    elif command == "nick":
+        sock = socket_connect(args.sockpath)
+        socket_send(sock, 'n' + channel + ' :' + msg)
+        print(cstr(socket_recv(sock)))
     else:
         invalid_cmd()
 
@@ -202,7 +206,7 @@ def socket_recv(sock):
         print ("No socket connection")
 
 def socket_send(sock, msg):
-    #msg = msg[0:511] #Limit the message sent to PIPE_BUF
+    msg = msg[0:511] #Limit the message sent to PIPE_BUF
     msg = str.encode(msg+'\n')
     try:
         sock.send(msg)
