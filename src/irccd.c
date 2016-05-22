@@ -102,8 +102,9 @@ int read_line(int *sockfd, char *recvline, int len)
 		recvline[i++] = c;
 	} while (c != '\n' && i < len - 2); // -2 because we need to save room for "\r\n"
 	recvline[--i] = '\0'; // truncates message ending in '\n' with null byte
+	// if there is a carriage return, also make it null
 	if (recvline[i-1] == '\r') {
-		recvline[--i] = '\0'; // If there is a carriage return, also make it null
+		recvline[--i] = '\0';
 	}
 	fprintf(stdout, "irccd: in: %s\n", recvline);
 	log_msg(recvline);
@@ -119,6 +120,7 @@ int fork_reader(int *sockfd, int *unixfd)
 	int recvlen;
 	char recvline[IRC_BUF_MAX];
 	while(1) {
+		memset(recvline, 0, IRC_BUF_MAX);
 		recvlen = read_line(sockfd, recvline, IRC_BUF_MAX);
 		if(recvlen == -1) {
 			fprintf(stderr, "irccd(reader): Quit, connection dropped\n");
@@ -235,11 +237,15 @@ int list_chan(char *message, int max_size)
 	Channel *tmp = channels;
 	int len = 0;
 	while (tmp && len < max_size - CHAN_LEN-1) {
-		len = snprintf(message, max_size, "%s%s->", message, tmp->name);
+		len += strlen(tmp->name);
+		strncat(message, tmp->name, CHAN_LEN);
+		strncat(message, "->", 2);
+		len += 2;
 		tmp = tmp->next;
 	}
-	sprintf(message, "%s\n", message);
-	return 0;
+	strncat(message, "\n", 1);
+	len += 1;
+	return len;
 }
 
 int chan_namecheck(char *name) 
@@ -430,7 +436,7 @@ int main(int argc, char *argv[])
 			}
 			break;
 		case LIST_CHAN_MOD:
-			list_chan(message, IRC_BUF_MAX);
+			msglen = list_chan(message, IRC_BUF_MAX);
 			break;
 		case WRITE_MOD:
 			recvlen = snprintf(out, IRC_BUF_MAX, "PRIVMSG %s\r\n", recvline);
