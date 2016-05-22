@@ -206,7 +206,7 @@ def socket_recv(sock):
         print ("No socket connection")
 
 def socket_send(sock, msg):
-    msg = msg[0:511] #Limit the message sent to PIPE_BUF
+    msg = msg[0:510] #Limit the message sent to PIPE_BUF
     msg = str.encode(msg+'\n')
     try:
         sock.send(msg)
