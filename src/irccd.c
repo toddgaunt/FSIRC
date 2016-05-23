@@ -325,6 +325,7 @@ int main(int argc, char *argv[])
 {
 	// Looping ints
 	int i, j;
+	int daemon = 0;
 
 	if (argc > 1) {
 		for(i = 1; (i < argc) && (argv[i][0] == '-'); i++) {
@@ -340,11 +341,13 @@ int main(int argc, char *argv[])
 					  break;
 			case 'p': port = strtol(argv[++i], NULL, 10); break; // daemon port
 			case 'n': strncpy(nick, argv[++i], NICK_LEN); break; // daemon port
-			case 'd': daemonize(); break; // daemonize the process
+			case 'd': daemon=1; continue; // flag the daemonize process to start
 			default: usage();
 			}
 		}
 	}
+
+	if (daemon) daemonize();
 
 	// Ignore sigpipes, they're handled internally
 	signal(SIGPIPE, SIG_IGN);
