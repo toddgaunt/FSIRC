@@ -24,23 +24,13 @@
 #include <signal.h>
 #include <unistd.h>
 //#include <libconfig.h>//Use this to make config file
-/* - - - - - - - */
+
+#include "IString.h"
 #include "irccd.h"
 
-// Increase this for debugging output
-static int debug = 0;
+#define DEBUG 0 // toggles debug
 
-static struct Channel *channels = NULL; // Head of the connected channels list
-static char socketpath[_POSIX_PATH_MAX] = "/tmp/irccd.socket"; // Path to socket on filesystem
-static char logpath[_POSIX_PATH_MAX] = "/tmp/irccd.log"; // Path to socket on filesystem
-static int verbose = 1; // Verbosity count
-static int pid; // Process id
-
-// Might change during operation
-static char nick[NICK_LEN+1] = "iwakura_lain"; // User nickname (+1 for '\0')
-static char realname[NICK_LEN+1] = "Todd G."; // Real user name (+1 for '\0')
-static char host[IRC_BUF_MAX] = "nothing"; // String containing server address
-static unsigned short port = SERVER_PORT; // Port to connect with 
+// Static Functions:
 
 static void usage()
 {
@@ -49,8 +39,9 @@ static void usage()
 	exit(EXIT_FAILURE);
 }
 
+// Quit the program and clean up child process with pid
 static void quit()
-{/* Quit the program and clean up child process with pid */
+{
 	if (pid != 0) {
 		kill(pid, SIGTERM);
 		pid = 0;
@@ -58,8 +49,43 @@ static void quit()
 	exit(EXIT_SUCCESS);
 }
 
-int log_msg(char *buf)
-{/* Writes buf to a log file, expects buf to not include any newline characters */
+// Utility Functions:
+
+int daemonize(int nochdir, int noclose) 
+{/* Fork the process, detach from terminal, and redirect std streams */
+	switch (fork()) { 
+	case -1:
+		return -1;
+	case 0: 
+		break;
+	default: 
+		exit(EXIT_SUCCESS);
+	}
+
+	if (setsid() < 0) return -1;
+
+	if (!nochdir) {
+		if (chdir("/") < 0) return -1;
+	}
+
+	if (!noclose) {
+		int devnull = open(PATH_DEVNULL, O_RDWR);
+		if (devnull < 0) return -1;
+		dup2(devnull, STDIN_FILENO);
+		dup2(devnull, STDOUT_FILENO);
+		dup2(devnull, STDERR_FILENO);
+		close(STDIN_FILENO);
+		close(STDOUT_FILENO);
+		close(STDERR_FILENO);
+	}
+
+	return 0;
+}
+
+
+// Writes buf to a log file, expects buf to not include any newline characters
+int log_msg(struct logger lg, char *buf)
+{
 	FILE *fd = fopen(logpath, "a");
 	if (fprintf(fd, "%s\n", buf) < 0) {
 		return -1;
@@ -89,9 +115,9 @@ int send_msg(int *sockfd, char *buf, int len)
 	return n;
 }
 
-int read_line(int *sockfd, char *recvline, int len)
+size_t read_line(int *sockfd, char **recvline, size_t *len)
 {/* Read chars from socket until a newline or 510 chars have been read */
-	int i = 0;
+	size_t i = 0;
 	char c;
 	do {
 		if (recv(*sockfd, &c, sizeof(char), 0) != sizeof(char)) {
@@ -139,7 +165,7 @@ int fork_reader(int *sockfd, int *unixfd)
 	}
 }
 
-int socket_connect(char *host, int *sockfd, int port)
+int socket_connect(int *sockfd, char *host, int port)
 {/* Construct socket at sockfd, then connect */
 	struct sockaddr_in servaddr; 
 	memset(&servaddr, 0, sizeof(struct sockaddr_in));
@@ -164,70 +190,6 @@ int socket_connect(char *host, int *sockfd, int port)
 	}
 
 	return 0;
-}
-
-int socket_bind(const char *path, int *sockfd)
-{/* Contruct a unix socket for inter-process communication, then connect */
-	struct sockaddr_un servaddr; 
-	memset(&servaddr, 0, sizeof(struct sockaddr_un));
-	servaddr.sun_family = AF_UNIX;
-	strcpy(servaddr.sun_path, path);
-
-	// Define socket to be a Unix socket
-	*sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
-	if (*sockfd < 0) {
-		perror("irccd: cannot create socket");
-		return 1;
-	}
-	// Before binding, unlink to detach previous owner of socket 
-	// eg. earlier invocations of this program
-	unlink(path);
-
-	if (bind(*sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
-		perror("irccd: unable to bind socket");
-		return 1;
-	}
-	return 0;
-}
-
-int add_chan(char *name)
-{/* Add a channel to end of list */
-	Channel *tmp = channels;
-	while (tmp->next) {
-		tmp = tmp->next;
-		// If the named channel is already in the list, stop
-		if (strcmp(tmp->name, name) == 0) {
-			return 1;
-		}
-	}
-	tmp->next = (Channel *)malloc(sizeof(Channel)); 
-	tmp = tmp->next; 
-	if (!tmp) {
-		printf("irccd: Cannot allocate memory");
-		return -1;
-	}
-	tmp->name = strdup(name); // mallocs then strcpy
-	tmp->next = NULL;
-
-	return 0;
-}
-
-int part_chan(char *name)
-{/* Remove an entry with name from list */
-	Channel *garbage;
-	Channel *tmp = channels;
-	while (tmp->next) {
-		if (strcmp(tmp->next->name, name) == 0) {
-			garbage = tmp->next; 
-			tmp->next = tmp->next->next;
-
-			free(garbage->name);
-			free(garbage);
-			return 0;
-		}
-		tmp = tmp->next;
-	}
-	return 1;
 }
 
 int list_chan(char *message, int max_size)
@@ -277,18 +239,8 @@ static void login(int *sockfd)
 	send_msg(sockfd, buf, len);
 }
 
-static int host_connect(int *tcpfd, int *unixfd, char *buf)
-{/* Open tcp socket connection, and fork reader process */
-	strncpy(host, buf, IRC_BUF_MAX);
-	// Change the root channel's name to the new host
-	free(channels->name);
-	channels->name = strdup(host);
-	if (socket_connect(host, tcpfd, port) == 0) {
-		fork_reader(tcpfd, unixfd);
-		login(tcpfd);
-		return 0;
-	}
-	return 1;
+static int host_connect(struct irc_srv_conn *srv, int *unixfd, char *buf)
+{
 }
 
 static void could_not_send(char *message, int len) {
@@ -296,29 +248,62 @@ static void could_not_send(char *message, int len) {
 	fprintf(stderr, "irccd: %s", message);
 }
 
-int daemonize() 
-{/* Fork the process, detach from terminal, and redirect std streams */
-	switch (fork()) { 
-	case -1:
-		return -1;
-	case 0: 
-		break;
-	default: 
-		exit(EXIT_SUCCESS);
+// Channel Linked List Functions:
+
+/* find_chan
+ * return:
+ *   returns pointer to node if found, NULL otherwise
+ */
+struct irc_channel* find_chan(struct irc_channel *head, char *name)
+{/* Remove an entry with name from list */
+	if (NULL == head || NULL == name) {
+		errno = EINVAL;
+		return NULL;
 	}
 
-	if (setsid() < 0) return -1;
-	if (chdir("/") < 0) return -1;
+	struct irc_channel *tmp = head;
+	while (tmp) {
+		if (0 == strcmp(tmp->name, name)) {
+			return tmp;
+		}
+		tmp = tmp->next;
+	}
+	return NULL;
+}
 
-	int devnull = open(PATH_DEVNULL, O_RDWR);
-	if (devnull < 0) return -1;
-	dup2(devnull, STDIN_FILENO);
-	dup2(devnull, STDOUT_FILENO);
-	dup2(devnull, STDERR_FILENO);
-	close(STDIN_FILENO);
-	close(STDOUT_FILENO);
-	close(STDERR_FILENO);
-	return 0;
+struct irc_channel* prepend_chan(struct irc_channel *head, char *name)
+{/* Add a channel to end of list */
+	struct irc_channel *tmp = malloc(sizeof(tmp)); 
+	if (!tmp) {
+		printf("irccd: Cannot allocate memory");
+		return -1;
+	}
+	tmp->next = head;
+	tmp->name = strdup(name); // mallocs then strcpy
+	tmp->next = NULL;
+
+	return tmp;
+}
+
+struct irc_channel* pop_chan(struct irc_channel *head)
+{
+	struct irc_channel *tmp = head->next;
+	free(head->name);
+	free(head);
+	return tmp;
+}
+
+int free_all_channels(struct irc_channel *head)
+{
+	struct irc_channel *garbage = NULL;
+	struct irc_channel *tmp = head;
+	while (tmp) {
+		garbage = tmp;
+		tmp = tmp->next;
+		free(tmp->name);
+		free(tmp);
+	}
+	return NULL;
 }
 
 int main(int argc, char *argv[]) 
@@ -330,7 +315,7 @@ int main(int argc, char *argv[])
 	if (argc > 1) {
 		for(i = 1; (i < argc) && (argv[i][0] == '-'); i++) {
 			switch (argv[i][1]) {
-			case 'h': usage(); break; // help message
+			case 'h': usage(); break; usage
 			case 'v': for (j = 1; argv[i][j] && argv[i][j] == 'v'; j++) {
 						  verbose++; 
 					  }
@@ -347,58 +332,26 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	if (daemon) daemonize();
+	if (daemon) daemonize(0, 0);
 
-	// Ignore sigpipes, they're handled internally
-	signal(SIGPIPE, SIG_IGN);
+	struct irc_srv_conn srv;
 
-	// Head channel
-	channels = (Channel*)malloc(sizeof(Channel));
-	channels->name = strdup(host);
+	struct irc_channel *head = NULL;
 
-	char actmode = 0; // Which mode to operate on
-	int fd; // File descriptor for local socket
+	IString *recvln = IString_new();
 
-	// tcp socket for irc
-	int tcpfd = 0;
-
-	// Communication socket for clients
-	int unixfd;
-	socket_bind(socketpath, &unixfd);
-
-	// Recving buffer from client
-	char recvline[IRC_BUF_MAX];
-	short recvlen;
-
-	// Message buffers. out for irc,  message for client
-	char message[IRC_BUF_MAX];
-	short msglen;
-
-	char out[IRC_BUF_MAX];
-
-	listen(unixfd, 5); // Start listening for connections
 	// Main loop
 	while(1) {
 		fd = accept(unixfd, 0, 0);
-		recvlen = read_line(&fd, recvline, IRC_BUF_MAX-2); // -2 because room is needed for \r\n
+		recvlen = read_line(&fd, &(recvln.buf), &(recvln.size));
+
 		if (recvlen == -1) {
 			fprintf(stderr, "irccd: error recieving message from client\n");
 			continue;
 		}
-		if (debug) printf("recvline: %s, recvlen: %d, i:%d, %c\n", recvline, recvlen, i, recvline[recvlen]);
-		// Actmode determines which action the loop should do
-		actmode = recvline[0];
-		for (i=0; i<recvlen; i++) {
-			recvline[i] = recvline[i+1]; // Stores the message seperately from actcode
-		}
-		// Shorten the string
-		recvline[--recvlen] = '\0';
-		// temp for debugging
-		if (debug) printf("recvline: %s, recvlen: %d, i:%d, %c\n", recvline, recvlen, i, recvline[recvlen]);
-
 		switch (actmode) {
 		case JOIN_MOD:
-			if (chan_namecheck(recvline) != 0) {
+			if (verify_chan_name(recvline) != 0) {
 				msglen = snprintf(message, IRC_BUF_MAX, "Invalid channel name\n");
 				fprintf(stderr, "irccd %s", message);
 				break;
@@ -503,9 +456,6 @@ int main(int argc, char *argv[])
 			sleep(1);
 			break;
 		}
-		// Finally send and message
-		send(fd, message, msglen, 0);
-		close(fd);
 	}
 	quit(pid);
 }
