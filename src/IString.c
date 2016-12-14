@@ -1,32 +1,44 @@
-#include <string.h>
 #include <stdlib.h>
+#include <stdbool.h>
+#include <string.h>
+#include <errno.h>
 
-typedef struct IString {
-	char *buf;     // character buffer
-	size_t size;   // size of character buffer
-	size_t len; // amount of characters until '\0'
-} IString;
+#include "IString.h"
 
-IString* IString_new() 
+/*
+ *
+ */
+IString* IString_new(const char *str, size_t len) 
 {
-	IString *string = malloc(sizeof(string));
+	IString *string = malloc(sizeof(*string));
 	string->buf = NULL;
 	string->size = 0;
 	string->len = 0;
+	if (NULL != str && 0 != len) {
+		IString_assign(string, str, len);
+	}
+
+	return string;
 }
 
-void IString_free(IString *string)
+char* IString_free(IString *string, bool free_buf)
 {
-	if (NULL != string->buf) {
+	if (string->buf) {
+		if (!free_buf) {
+			char *tmp = string->buf;
+			free(string);
+			return tmp;
+		}
 		free(string->buf);
 	}
-	string->size = 0;
-	string->len = 0;
+	free(string);
+
+	return NULL;
 }
 
-IString* IString_assign(GString *string, const char *str, size_t n)
+IString* IString_assign(IString *string, const char *str, size_t len)
 {
-	if (NULL == string) {
+	if (NULL == string || NULL == str) {
 		errno = EINVAL;
 		return NULL;
 	}
@@ -37,8 +49,8 @@ IString* IString_assign(GString *string, const char *str, size_t n)
 		string->len = 0;
 	}
 
-	size_t i;
-	for (i=0;'\0' != str[i] || i < n;i++) {
+	size_t i = 0;
+	while('\0'!=str[i] || i < len) {
 		string->buf[i] = str[i];
 		i++;
 		if (string->size < i) {
@@ -54,6 +66,28 @@ IString* IString_assign(GString *string, const char *str, size_t n)
 	string->buf[i] = '\0';
 	string->len = i;
 	return string;
+}
+
+/*
+ * return:
+ *   0: strings are equal
+ *   1: strings are not equal
+ *   -1: Invalid arguments and errno set to EINVAL
+ */
+int IString_eq(const IString *s1, const IString *s2)
+{
+	if (NULL == s1, NULL == s2) {
+		errno = EINVAL;
+		return -1;
+	}
+	
+	if (s1->len != s2->len) return 1;
+
+	int i;
+	for (i=0; i<s1->len; i++) {
+		if (s1->buf[i] != s2->buf[i]) return 1;
+	}
+	return 0;
 }
 
 IString* IString_dup (const IString *string) 
@@ -75,4 +109,31 @@ IString* IString_dup (const IString *string)
 	memcpy(dup->buf, string->buf, string->len);
 	dup->len = string->len;
 	return dup;
+}
+
+IString* IString_append_s(IString *string, const char *str, size_t str_len)
+{
+	if (NULL == string || NULL == str) {
+		errno = EINVAL;
+		return NULL;
+	}
+
+	// Double the string buffer if out of space
+	if (string->size < (string->len + str_len + 1)) {
+		string->size *= 2;
+		string->buf = realloc(string->buf, sizeof(string->buf) * (string->size));
+		if (!string->buf) {
+			errno = ENOMEM;
+			return NULL;
+		}
+	}
+
+	int i;
+	for (i=string->len; i<str_len;i++) {
+		string->buf[i] = str[i - string->len];
+	}
+	string->len += str_len;
+
+	string->buf[i] = '\0';
+	return string;
 }
