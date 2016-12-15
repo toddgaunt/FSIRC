@@ -8,18 +8,18 @@
 
 // WARNING: Do not access these fields directly outside of test code
 // this API is designed to not require the internals to be messed with
-// as they could potentially change in the future
+// as they could potentially change in the future.
 typedef struct istring {
-	char *buf;     // character buffer
-	size_t size;   // size of character buffer
-	size_t len; // amount of characters until '\0'
+	char *buf;     // Character buffer.
+	size_t size;   // Size of character buffer.
+	size_t len; // Amount of characters in the buffer.
 } istring;
 
 
 /* istr_new
  * return -> istring*
  *   success: if source is not NULL, duplicate *source exactly and return it,
- *     otherwise return an initialized string object
+ *     otherwise return an initialized string object.
  *   memory error: NULL and errno = ENOMEM
  */
 istring* istr_new(istring *source);
@@ -36,18 +36,25 @@ istring* istr_new_cstr(const char *str);
 char* istr_free(istring *string, bool free_buf);
 
 /* istr_str
- * desc: returns a pointer to the istr char buffer.
+ * desc: Returns a pointer to the istr char buffer.
  *   Use this for interoperability with <string.h> functions.
+ *   Please be careful, the buffer might be realloc'd by
+ *   any of the non-const istr_funcs and you'll have to call
+ *   this function again to avoid pointing to
+ *   memory you shouldn't be pointing to.
+ *
+ *   TL;DR - Use the pointer returned by this functions
+ *   as soon as possible before calling other istr_funcs on it
  * return: char*
- *   success: the string object's char buffer
- *   bad args: errno = EINVAL and NULL;
+ *   success: The string object's char buffer
+ *   bad args: errno = EINVAL and return NULL.
  */
 char* istr_str(const istring *string);
 
 /* istr_len
  * return: size_t
- *   success: The string object's length value
- *   bad args: 0 and errno = EINVAL
+ *   success: The string object's length.
+ *   bad args: 0 and errno = EINVAL.
  */
 size_t istr_len(const istring *string);
 
@@ -85,7 +92,7 @@ istring* istr_append(istring *string, istring *extension);
 
 /* istr_append
  * return -> istring*
- *   success: original string object with *str appended to char buffer
+ *   success: original string object with *str appended to char buffer.
  *   bad args: NULL & errno=EINVAL
  *   memory error: NULL & errno=ENOMEM
  */

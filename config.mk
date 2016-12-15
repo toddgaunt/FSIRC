@@ -15,4 +15,4 @@ CFLAGS=-g -std=c99 -pedantic -Wall -Wextra -static
 LDFLAGS=
 
 # Compiler and linker
-CC=musl-gcc
+CC=gcc

@@ -73,8 +73,10 @@ void test_istr_str()
 
 int main()
 {
+	printf("Testing istrlib...\n");
 	test_new_and_free();
 	test_assign();
 	test_istr_str();
+	printf("istrlib testing success!\n");
 	return 0;
 }
