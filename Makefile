@@ -5,10 +5,7 @@ EXE=irccd
 SRC= irccd.c istrlib.c
 OBJ=${SRC:.c=.o}
 
-all: init settings ${EXE}
-
-init:
-	@mkdir -p build/
+all: settings ${EXE}
 
 settings:
 	@echo tsh build settings:
@@ -28,16 +25,15 @@ ${EXE}: ${OBJ}
 # TESTING SECTION BELOW #
 #########################
 
-TESTS=test_istring
-
+TESTS=test_istrlib
 
 tests: ${TESTS}
 
 run_tests: tests
 	$(foreach test,${TESTS},./${test})
 
-test_istring: test_istring.c istrlib.c
-	${CC} -o test_istring test_istring.c istrlib.c
+test_istrlib: test_istrlib.c istrlib.c
+	${CC} -o test_istrlib test_istrlib.c istrlib.c
 
 #
 #
