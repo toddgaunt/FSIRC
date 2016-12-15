@@ -1,27 +1,24 @@
 #include <stdlib.h>
 #include <stdbool.h>
-#include <string.h>
 #include <errno.h>
+#include <string.h>
 
-#include "IString.h"
+#include "istrlib.h"
 
-/*
- *
- */
-IString* IString_new(const char *str, size_t len) 
+istring* istr_new(const char *str, size_t len) 
 {
-	IString *string = malloc(sizeof(*string));
+	istring *string = malloc(sizeof(*string));
 	string->buf = NULL;
 	string->size = 0;
 	string->len = 0;
 	if (NULL != str && 0 != len) {
-		IString_assign(string, str, len);
+		istr_assign(string, str, len);
 	}
 
 	return string;
 }
 
-char* IString_free(IString *string, bool free_buf)
+char* istr_free(istring *string, bool free_buf)
 {
 	if (string->buf) {
 		if (!free_buf) {
@@ -36,7 +33,25 @@ char* IString_free(IString *string, bool free_buf)
 	return NULL;
 }
 
-IString* IString_assign(IString *string, const char *str, size_t len)
+char* istr_str(istring *string)
+{
+	if (NULL == string) {
+		errno = EINVAL;
+		return NULL;
+	}
+	return string->buf;
+}
+
+size_t istr_len(istring *string)
+{
+	if (NULL == string) {
+		errno = EINVAL;
+		return 0;
+	}
+	return string->len;
+}
+
+istring* istr_assign(istring *string, const char *str, size_t len)
 {
 	if (NULL == string || NULL == str) {
 		errno = EINVAL;
@@ -45,6 +60,10 @@ IString* IString_assign(IString *string, const char *str, size_t len)
 	
 	if (NULL == string->buf) {
 		string->buf = malloc(sizeof(string->buf)*BASE_STR_LEN);
+		if (!string->buf) {
+			errno = ENOMEM;
+			return NULL;
+		}
 		string->size = BASE_STR_LEN;
 		string->len = 0;
 	}
@@ -56,7 +75,8 @@ IString* IString_assign(IString *string, const char *str, size_t len)
 		if (string->size < i) {
 			// Double the allocated memory
 			string->size *= 2;
-			string->buf = realloc(string->buf, sizeof(string->buf) * (string->size));
+			string->buf = realloc(string->buf, \
+					sizeof(string->buf) * (string->size));
 			if (!string->buf) {
 				errno = ENOMEM;
 				return NULL;
@@ -68,33 +88,27 @@ IString* IString_assign(IString *string, const char *str, size_t len)
 	return string;
 }
 
-/*
- * return:
- *   0: strings are equal
- *   1: strings are not equal
- *   -1: Invalid arguments and errno set to EINVAL
- */
-int IString_eq(const IString *s1, const IString *s2)
+int istr_eq(const istring *s1, const istring *s2)
 {
-	if (NULL == s1, NULL == s2) {
+	if (NULL == s1 || NULL == s2) {
 		errno = EINVAL;
 		return -1;
 	}
 	
 	if (s1->len != s2->len) return 1;
 
-	int i;
+	size_t i;
 	for (i=0; i<s1->len; i++) {
 		if (s1->buf[i] != s2->buf[i]) return 1;
 	}
 	return 0;
 }
 
-IString* IString_dup (const IString *string) 
+istring* istr_dup (const istring *string) 
 {
 	if (NULL == string) return NULL;
 
-	IString *dup = malloc(sizeof(dup));
+	istring *dup = malloc(sizeof(dup));
 	if (!dup) {
 		errno = ENOMEM;
 		return NULL;
@@ -111,7 +125,7 @@ IString* IString_dup (const IString *string)
 	return dup;
 }
 
-IString* IString_append_s(IString *string, const char *str, size_t str_len)
+istring* istr_append(istring *string, const char *str, size_t str_len)
 {
 	if (NULL == string || NULL == str) {
 		errno = EINVAL;
@@ -121,14 +135,15 @@ IString* IString_append_s(IString *string, const char *str, size_t str_len)
 	// Double the string buffer if out of space
 	if (string->size < (string->len + str_len + 1)) {
 		string->size *= 2;
-		string->buf = realloc(string->buf, sizeof(string->buf) * (string->size));
+		string->buf = realloc(string->buf, \
+			sizeof(string->buf) * (string->size));
 		if (!string->buf) {
 			errno = ENOMEM;
 			return NULL;
 		}
 	}
 
-	int i;
+	size_t i;
 	for (i=string->len; i<str_len;i++) {
 		string->buf[i] = str[i - string->len];
 	}

@@ -1,7 +1,6 @@
 /*
  * Name: irccd
  * Author: Todd Gaunt
- * Last updated: 2016-05-22
  * License: MIT
  * Description:
  * irccd is a simple irc-bot daemon
@@ -25,10 +24,32 @@
 #include <unistd.h>
 //#include <libconfig.h>//Use this to make config file
 
-#include "IString.h"
-#include "irccd.h"
+#include "istrlib.h"
 
 #define DEBUG 0 // toggles debug
+
+#ifndef PIPE_BUF /* If no PIPE_BUF defined */
+#define PIPE_BUF _POSIX_PIPE_BUF
+#endif
+
+#define PATH_DEVNULL "/dev/null"
+
+#define PING_TIMEOUT 10
+
+struct irc_srv_conn {
+	char *nick;
+	char *realname;
+	char *host;
+	unsigned int port;
+
+	int tcpfd;
+};
+
+struct channel {
+	char *name;
+	struct Channel *next;
+};
+
 
 // Static Functions:
 

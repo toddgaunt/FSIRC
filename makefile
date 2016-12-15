@@ -1,10 +1,14 @@
 include config.mk
 
-SRD_DIR=src/
-SRC=${SRC_DIR}irccd.c
+EXE=irccd
+
+SRC= irccd.c istrlib.c
 OBJ=${SRC:.c=.o}
 
-all: settings ${EXE}
+all: init settings ${EXE}
+
+init:
+	@mkdir -p build/
 
 settings:
 	@echo tsh build settings:
@@ -17,11 +21,21 @@ settings:
 
 ${OBJ}: config.mk
 
-irccd: ${OBJ} ${SRC_DIR}irccd.h
+${EXE}: ${OBJ}
 	${CC} -o ${EXE} ${OBJ} ${LDFLAGS}
 
 clean:
-	rm -f ${OBJ}
-	rm -f ${EXE}
+	@rm -rf build/
 
 .PHONY: all settings clean
+
+#@@@@@@@@@@@@@@@@@@@@@@@#
+# TESTING SECTION BELOW #
+#########################
+
+
+tests: test_istring
+
+test_IString: istrlib.o
+	${CC} -o test_istring istrlib.c test_istring.c
+	./test_istring
