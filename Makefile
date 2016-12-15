@@ -24,18 +24,27 @@ ${OBJ}: config.mk
 ${EXE}: ${OBJ}
 	${CC} -o ${EXE} ${OBJ} ${LDFLAGS}
 
-clean:
-	@rm -rf build/
-
-.PHONY: all settings clean
-
 #@@@@@@@@@@@@@@@@@@@@@@@#
 # TESTING SECTION BELOW #
 #########################
 
+TESTS=test_istring
 
-tests: test_istring
 
-test_IString: istrlib.o
-	${CC} -o test_istring istrlib.c test_istring.c
-	./test_istring
+tests: ${TESTS}
+
+run_tests: tests
+	$(foreach test,${TESTS},./${test})
+
+test_istring: test_istring.c istrlib.c
+	${CC} -o test_istring test_istring.c istrlib.c
+
+#
+#
+#
+
+clean:
+	rm -f ${EXE} ${OBJ}
+	rm -f ${TESTS}
+
+.PHONY: all settings clean

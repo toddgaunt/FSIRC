@@ -39,6 +39,7 @@ char* istr_str(istring *string)
 		errno = EINVAL;
 		return NULL;
 	}
+
 	return string->buf;
 }
 

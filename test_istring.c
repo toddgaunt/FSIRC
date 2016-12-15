@@ -7,6 +7,9 @@
 
 #include "istrlib.h"
 
+#define TEST(name) void name ## () \
+{
+
 void test_new_and_free() 
 {
 	istring *str = istr_new(NULL, 0);
@@ -27,7 +30,7 @@ void test_assign_string()
 
 	str = istr_assign(str, "OH", 2);
 
-	assert(!strcmp(istr_str(str), "OH") == 0);
+	assert(strcmp(istr_str(str), "OH") == 0);
 	assert(istr_len(str) == 2);
 
 	istr_free(str, true);
