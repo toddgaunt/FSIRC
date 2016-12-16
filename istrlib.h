@@ -22,7 +22,7 @@ typedef struct istring {
  *     otherwise return an initialized string object.
  *   memory error: NULL and errno = ENOMEM
  */
-istring* istr_new(istring *source);
+istring* istr_new(const istring *source);
 
 istring* istr_new_bytes(const char *str, size_t len);
 
@@ -64,6 +64,14 @@ size_t istr_len(const istring *string);
  */
 size_t istr_size(const istring *string);
 
+/* istr_eq
+ * return -> int
+ *   equal: 0
+ *   not equal: 1
+ *   bad args: -1 and errno = EINVAL
+ */
+int istr_eq(const istring *s1, const istring *s2);
+
 /* istr_copy
  * return -> istring*
  * TODO
@@ -76,13 +84,27 @@ istring* istr_assign_bytes(istring *string, const char *str, size_t len);
  */
 istring* istr_assign_cstr(istring *string, const char *str);
 
-/* istr_eq
- * return -> int
- *   equal: 0
- *   not equal: 1
- *   bad args: -1 and errno = EINVAL
+/*
+ * TODO
  */
-int istr_eq(const istring *s1, const istring *s2);
+istring* istr_write(istring *string, size_t index, istring *ext);
+
+/*
+ * TODO
+ */
+istring* istr_write_bytes(istring *string, size_t index, const char *str, size_t str_len);
+
+/*
+ *
+ * TODO
+ */
+istring* istr_prepend(istring *string, istring *ext);
+
+/*
+ *
+ * TODO
+ */
+istring* istr_prepend_bytes(istring *string, const char *str, size_t str_len);
 
 /*
  *TODO

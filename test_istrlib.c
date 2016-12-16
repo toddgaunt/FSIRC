@@ -19,11 +19,21 @@ void test_new_and_free()
 	istr_free(str, true);
 
 	two = istr_new_cstr("hi");
+	assert(strcmp(istr_str(two), "hi") == 0);
+	assert(istr_len(two) == 3);
+	assert(istr_size(two) >= 3);
+
 	str = istr_new(two);
+	assert(strcmp(istr_str(str), "hi") == 0);
+	assert(istr_len(str) == 3);
+	assert(istr_size(str) >= 3);
+
 	istr_free(two, true);
 	istr_free(str, true);
 
 	str = istr_new_bytes(NULL, 0);
+	assert(istr_len(str) == 0);
+	assert(istr_size(str) >= 0);
 	istr_free(str, true);
 
 	str = istr_new_bytes("hello", 6);
@@ -44,11 +54,19 @@ void test_assign()
 
 	assert(strcmp(istr_str(str), "hello") == 0);
 	assert(istr_len(str) == 6);
+	assert(istr_size(str) >= 6);
 
 	str = istr_assign_cstr(str, "OH");
 
 	assert(strcmp(istr_str(str), "OH") == 0);
 	assert(istr_len(str) == 3);
+	assert(istr_size(str) >= 3);
+
+	str = istr_assign_cstr(str, "WOWOWOWOWOWOWOWOWOW BIG STRING IS BIG");
+
+	assert(strcmp(istr_str(str), "WOWOWOWOWOWOWOWOWOW BIG STRING IS BIG") == 0);
+	assert(istr_len(str) == 38);
+	assert(istr_size(str) >= 38);
 
 	istr_free(str, true);
 }

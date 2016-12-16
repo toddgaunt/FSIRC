@@ -2,10 +2,53 @@
 #include <stdbool.h>
 #include <errno.h>
 #include <string.h>
+#include <stdio.h>
 
 #include "istrlib.h"
 
-static istring* istr_init()
+static const size_t max_size = (size_t)-1;
+
+// Find the max
+static inline size_t max(size_t a, size_t b)
+{
+	return (a < b) ? a : b;
+}
+
+// Compute the nearest power to num
+static inline size_t nearest_power(size_t base, size_t num)
+{
+	if (num > max_size / 2) return max_size;
+		
+	size_t pow = base;
+	while (pow < num) pow <<= 1 ;
+	return pow;
+}
+
+/*
+ * desc: Ensures that string char buffer will have enough memory
+ *   to hold at least len bytes. If not realloc will be called.
+ */
+static istring* istr_ensure_size(istring *string, size_t len)
+{
+	if (NULL == string) {
+		errno = EINVAL;
+		return NULL;
+	}
+
+	if (string->size < len) {
+		string->size = nearest_power(1, string->len + len);
+		string->buf = realloc(string->buf, sizeof(string->buf) * (string->size));
+		if (NULL == string->buf) {
+			free(string);
+			errno = ENOMEM;
+			return NULL;
+		}
+	}
+
+	return string;
+}
+
+static istring* istr_init(size_t init_size)
 {
 	istring *string = malloc(sizeof(*string));
 	if (NULL == string) {
@@ -17,61 +60,51 @@ static istring* istr_init()
 	string->size = 0;
 	string->len = 0;
 
+	// This allocates the char buffer in powers of two.
+	istr_ensure_size(string, max(init_size, 2));
+
 	return string;
 }
 
-static istring* istr_dup(const istring *string) 
+istring* istr_new(const istring *src) 
 {
-	if (NULL == string) return NULL;
+	if (NULL == src) return istr_init(0);
 
-	istring *dup = istr_init();
-	if (NULL == dup) {
+	istring *string = istr_init(src->len);
+
+	if (NULL == string) {
 		return NULL;
 	}
 
-	dup->buf = malloc(sizeof(dup->buf) * string->size);
-	if (!dup->buf) {
-		free(dup);
-		errno = ENOMEM;
+	return istr_assign_bytes(string, src->buf, src->len);
+}
+
+istring* istr_new_bytes(const char *str, size_t str_len) 
+{
+	if (NULL == str) return istr_init(0);
+
+	istring *string = istr_init(str_len);
+
+	if (NULL == string) {
 		return NULL;
 	}
-	dup->size = string->size;
-	memcpy(dup->buf, string->buf, string->len);
-	dup->len = string->len;
-	return dup;
-}
 
-istring* istr_new(istring *source) 
-{
-	if (NULL != source) {
-		return istr_dup(source);
-	}
-
-	return istr_init();
-}
-
-istring* istr_new_bytes(const char *str, size_t len) 
-{
-	istring *string = istr_init();
-
-	if (NULL != string && NULL != str && 0 != len) {
-		istr_append_bytes(string, str, len);
-	}
-
-	return string;
+	return istr_assign_bytes(string, str, str_len);
 }
 
 istring* istr_new_cstr(const char *str) 
 {
-	istring *string = istr_init();
+	if (NULL == str) return istr_init(0);
 
-	if (NULL != string && NULL != str) {
-		// 1 extra for the '\0'
-		size_t len = strlen(str) + 1;
-		istr_append_bytes(string, str, len);
+	size_t str_len = strlen(str) + 1;
+
+	istring *string = istr_init(str_len);
+
+	if (NULL == string) {
+		return NULL;
 	}
 
-	return string;
+	return istr_assign_bytes(string, str, str_len);
 }
 
 char* istr_free(istring *string, bool free_buf)
@@ -117,39 +150,22 @@ size_t istr_size(const istring *string)
 	return string->size;
 }
 
-istring* istr_assign_bytes(istring *string, const char *str, size_t len)
+istring* istr_assign_bytes(istring *string, const char *str, size_t str_len)
 {
 	if (NULL == string || NULL == str) {
 		errno = EINVAL;
 		return NULL;
 	}
 	
-	if (NULL == string->buf) {
-		string->buf = malloc(sizeof(string->buf)*BASE_STR_LEN);
-		if (!string->buf) {
-			errno = ENOMEM;
-			return NULL;
-		}
-		string->size = BASE_STR_LEN;
-		string->len = 0;
+	string->len = str_len;
+
+	if (string->size < str_len) {
+		istr_ensure_size(string, string->len);
 	}
 
-	size_t i = 0;
-	while(i < len) {
-		string->buf[i] = str[i];
-		i++;
-		if (string->size < i) {
-			// Double the allocated memory
-			string->size *= 2;
-			string->buf = realloc(string->buf, \
-					sizeof(string->buf) * (string->size));
-			if (!string->buf) {
-				errno = ENOMEM;
-				return NULL;
-			}
-		}
-	}
-	string->len = i;
+	// Don't bother memsetting the buffer, just shorten the logical length
+	memcpy(string->buf, str, str_len);
+
 	return string;
 }
 
@@ -160,9 +176,7 @@ istring* istr_assign_cstr(istring *string, const char *str)
 		return NULL;
 	}
 
-	size_t len = strlen(str) + 1;
-
-	return istr_assign_bytes(string, str, len);
+	return istr_assign_bytes(string, str, strlen(str)+1);
 }
 
 int istr_eq(const istring *s1, const istring *s2)
@@ -181,10 +195,52 @@ int istr_eq(const istring *s1, const istring *s2)
 	return 0;
 }
 
-//TODO
-istring* istr_append(istring *string, istring *extension)
+istring* istr_write(istring *string, size_t index, istring *ext)
 {
-	return NULL;
+	return istr_write_bytes(string, index, ext->buf, ext->len);
+}
+
+istring* istr_write_bytes(istring *string, size_t index, const char *str, size_t str_len)
+{
+	if (NULL == string || NULL == str) {
+		errno = EINVAL;
+		return NULL;
+	}
+
+	if (string->len < (index + str_len)) {
+		string->len = index + str_len;
+	}
+
+	string = istr_ensure_size(string, string->len);
+	if (NULL == string) {
+		return NULL;
+	}
+
+	memcpy(string->buf + index, str, str_len);
+
+	return string;
+}
+
+// TODO
+istring* istr_prepend(istring *string, istring *ext)
+{
+	return string;
+}
+
+// TODO
+istring* istr_prepend_bytes(istring *string, const char *str, size_t str_len)
+{
+	return string;
+}
+
+istring* istr_append(istring *dest, istring *src)
+{
+	if (NULL == src) {
+		errno = EINVAL;
+		return NULL;
+	}
+
+	return istr_append_bytes(dest, src->buf, src->len);
 }
 
 istring* istr_append_bytes(istring *string, const char *str, size_t str_len)
@@ -194,22 +250,26 @@ istring* istr_append_bytes(istring *string, const char *str, size_t str_len)
 		return NULL;
 	}
 
-	// Increase the size of the char buffer
-	if (string->size < (string->len + str_len)) {
-		string->size += str_len;
-		string->buf = realloc(string->buf, \
-			sizeof(string->buf) * (string->size));
-		if (!string->buf) {
-			errno = ENOMEM;
-			return NULL;
-		}
-	}
-
-	size_t i;
-	for (i=string->len; i<str_len;i++) {
-		string->buf[i] = str[i - string->len];
-	}
 	string->len += str_len;
 
+	string = istr_ensure_size(string, string->len);
+	if (NULL == string) {
+		return NULL;
+	}
+
+	memcpy(string->buf + string->len, str, str_len);
+
+	return string;
+}
+
+// TODO
+istring* istr_insert(istring *dest, size_t index, istring *src)
+{
+	return dest;
+}
+
+// TODO
+istring* istr_insert_bytes(istring *string, size_t index, const char *str, size_t str_len)
+{
 	return string;
 }
