@@ -22,11 +22,13 @@ void test_new_and_free()
 	assert(strcmp(istr_str(two), "hi") == 0);
 	assert(istr_len(two) == 3);
 	assert(istr_size(two) >= 3);
+	printf("size: %d\n", (int)istr_size(two));
 
 	str = istr_new(two);
 	assert(strcmp(istr_str(str), "hi") == 0);
 	assert(istr_len(str) == 3);
 	assert(istr_size(str) >= 3);
+	printf("size: %d\n", (int)istr_size(str));
 
 	istr_free(two, true);
 	istr_free(str, true);
@@ -55,18 +57,21 @@ void test_assign()
 	assert(strcmp(istr_str(str), "hello") == 0);
 	assert(istr_len(str) == 6);
 	assert(istr_size(str) >= 6);
+	printf("size: %d\n", (int)istr_size(str));
 
 	str = istr_assign_cstr(str, "OH");
 
 	assert(strcmp(istr_str(str), "OH") == 0);
 	assert(istr_len(str) == 3);
 	assert(istr_size(str) >= 3);
+	printf("size: %d\n", (int)istr_size(str));
 
 	str = istr_assign_cstr(str, "WOWOWOWOWOWOWOWOWOW BIG STRING IS BIG");
 
 	assert(strcmp(istr_str(str), "WOWOWOWOWOWOWOWOWOW BIG STRING IS BIG") == 0);
 	assert(istr_len(str) == 38);
 	assert(istr_size(str) >= 38);
+	printf("size: %d\n", (int)istr_size(str));
 
 	istr_free(str, true);
 }

@@ -6,10 +6,12 @@
 
 #include "istrlib.h"
 
+#define MAX()
+
 static const size_t max_size = (size_t)-1;
 
 // Find the max
-static inline size_t max(size_t a, size_t b)
+static inline size_t smax(size_t a, size_t b)
 {
 	return (a < b) ? a : b;
 }
@@ -36,7 +38,7 @@ static istring* istr_ensure_size(istring *string, size_t len)
 	}
 
 	if (string->size < len) {
-		string->size = nearest_power(1, string->len + len);
+		string->size = nearest_power(2, len);
 		string->buf = realloc(string->buf, sizeof(string->buf) * (string->size));
 		if (NULL == string->buf) {
 			free(string);
@@ -61,7 +63,7 @@ static istring* istr_init(size_t init_size)
 	string->len = 0;
 
 	// This allocates the char buffer in powers of two.
-	istr_ensure_size(string, max(init_size, 2));
+	istr_ensure_size(string, smax(init_size, 2));
 
 	return string;
 }
@@ -156,15 +158,15 @@ istring* istr_assign_bytes(istring *string, const char *str, size_t str_len)
 		errno = EINVAL;
 		return NULL;
 	}
-	
-	string->len = str_len;
 
-	if (string->size < str_len) {
-		istr_ensure_size(string, string->len);
+	string = istr_ensure_size(string, str_len);
+	if (NULL == string) {
+		return NULL;
 	}
 
 	// Don't bother memsetting the buffer, just shorten the logical length
 	memcpy(string->buf, str, str_len);
+	string->len = str_len;
 
 	return string;
 }
@@ -250,14 +252,13 @@ istring* istr_append_bytes(istring *string, const char *str, size_t str_len)
 		return NULL;
 	}
 
-	string->len += str_len;
-
-	string = istr_ensure_size(string, string->len);
+	string = istr_ensure_size(string, string->len + str_len);
 	if (NULL == string) {
 		return NULL;
 	}
 
 	memcpy(string->buf + string->len, str, str_len);
+	string->len += str_len;
 
 	return string;
 }
