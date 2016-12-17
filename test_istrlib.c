@@ -22,13 +22,11 @@ void test_new_and_free()
 	assert(strcmp(istr_str(two), "hi") == 0);
 	assert(istr_len(two) == 3);
 	assert(istr_size(two) >= 3);
-	printf("size: %d\n", (int)istr_size(two));
 
 	str = istr_new(two);
 	assert(strcmp(istr_str(str), "hi") == 0);
 	assert(istr_len(str) == 3);
 	assert(istr_size(str) >= 3);
-	printf("size: %d\n", (int)istr_size(str));
 
 	istr_free(two, true);
 	istr_free(str, true);
@@ -48,32 +46,28 @@ void test_new_and_free()
 	istr_free(str, true);
 }
 
+static inline void assign_assert(istring *string, char *str)
+{
+	size_t str_len = strlen(str) + 1;
+	string = istr_assign_cstr(string, str);
+
+	assert(strcmp(istr_str(string), str) == 0);
+	assert(istr_len(string) == str_len);
+	assert(istr_size(string) >= str_len);
+}
+
 void test_assign()
 {
-	istring *str = istr_new(NULL);
+	istring *string = istr_new(NULL);
 
-	str = istr_assign_cstr(str, "hello");
+	// case1: assign a cstr to a NULL initialized istring
+	assign_assert(string, "hello");
+	// case2: assign a cstr to an already assigned istring
+	assign_assert(string, "OH");
+	// case3: assign a larger cstr to an istring to expand the size
+	assign_assert(string, "WOWOWOWOWOWOWOWOWOW BIG STRING IS BIG");
 
-	assert(strcmp(istr_str(str), "hello") == 0);
-	assert(istr_len(str) == 6);
-	assert(istr_size(str) >= 6);
-	printf("size: %d\n", (int)istr_size(str));
-
-	str = istr_assign_cstr(str, "OH");
-
-	assert(strcmp(istr_str(str), "OH") == 0);
-	assert(istr_len(str) == 3);
-	assert(istr_size(str) >= 3);
-	printf("size: %d\n", (int)istr_size(str));
-
-	str = istr_assign_cstr(str, "WOWOWOWOWOWOWOWOWOW BIG STRING IS BIG");
-
-	assert(strcmp(istr_str(str), "WOWOWOWOWOWOWOWOWOW BIG STRING IS BIG") == 0);
-	assert(istr_len(str) == 38);
-	assert(istr_size(str) >= 38);
-	printf("size: %d\n", (int)istr_size(str));
-
-	istr_free(str, true);
+	istr_free(string, true);
 }
 
 void test_istr_str()

@@ -3,12 +3,22 @@
 #include <errno.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdint.h>
 
 #include "istrlib.h"
 
-#define MAX()
-
-static const size_t max_size = (size_t)-1;
+// Safe add
+// Checks for overflow, if it would happen 
+// instead return SIZE_MAX and set errno
+static inline size_t safe_add(size_t a, size_t b)
+{
+	if (a > SIZE_MAX - b) {
+		errno = ERANGE;
+		return SIZE_MAX;
+	} else {
+		return a + b;
+	}
+}
 
 // Find the max
 static inline size_t smax(size_t a, size_t b)
@@ -17,13 +27,16 @@ static inline size_t smax(size_t a, size_t b)
 }
 
 // Compute the nearest power to num
-static inline size_t nearest_power(size_t base, size_t num)
+static inline size_t next_pow(size_t base, size_t num)
 {
-	if (num > max_size / 2) return max_size;
+	// Catch powers of 0, as they will break the loop below
+	if (base == 0) return 0;
+
+	// Check if the next pow will overflow
+	if (num > SIZE_MAX / 2) return SIZE_MAX;
 		
-	size_t pow = base;
-	while (pow < num) pow <<= 1 ;
-	return pow;
+	while (base < num) base <<= 1 ;
+	return base;
 }
 
 /*
@@ -38,7 +51,7 @@ static istring* istr_ensure_size(istring *string, size_t len)
 	}
 
 	if (string->size < len) {
-		string->size = nearest_power(2, len);
+		string->size = next_pow(2, len);
 		string->buf = realloc(string->buf, sizeof(string->buf) * (string->size));
 		if (NULL == string->buf) {
 			free(string);
@@ -119,6 +132,7 @@ char* istr_free(istring *string, bool free_buf)
 		}
 		free(string->buf);
 	}
+
 	if (string) free(string);
 
 	return NULL;
@@ -149,6 +163,7 @@ size_t istr_size(const istring *string)
 		errno = EINVAL;
 		return 0;
 	}
+
 	return string->size;
 }
 
@@ -209,8 +224,10 @@ istring* istr_write_bytes(istring *string, size_t index, const char *str, size_t
 		return NULL;
 	}
 
-	if (string->len < (index + str_len)) {
-		string->len = index + str_len;
+	size_t potential_len = safe_add(index, str_len);
+
+	if (string->len < potential_len) {
+		string->len = potential_len;
 	}
 
 	string = istr_ensure_size(string, string->len);
@@ -252,13 +269,15 @@ istring* istr_append_bytes(istring *string, const char *str, size_t str_len)
 		return NULL;
 	}
 
-	string = istr_ensure_size(string, string->len + str_len);
+	// Overflow check
+	string->len = safe_add(string->len, str_len);
+
+	string = istr_ensure_size(string, string->len);
 	if (NULL == string) {
 		return NULL;
 	}
 
 	memcpy(string->buf + string->len, str, str_len);
-	string->len += str_len;
 
 	return string;
 }
@@ -272,5 +291,15 @@ istring* istr_insert(istring *dest, size_t index, istring *src)
 // TODO
 istring* istr_insert_bytes(istring *string, size_t index, const char *str, size_t str_len)
 {
+	if (NULL == string || NULL == str) {
+		errno = EINVAL;
+		return NULL;
+	}
+
+	// Index is out of bounds, don't modify the string
+	if (index > string->len) {
+		return string;
+	}
+
 	return string;
 }
