@@ -46,6 +46,24 @@ void test_new_and_free()
 	istr_free(str, true);
 }
 
+void test_istr_str()
+{
+	istring *n = istr_new_cstr("hello");
+	char *tmp;
+
+	tmp = istr_str(n);
+	tmp[2] = 'Z';
+	tmp[3] = 'Z';
+
+	n = istr_assign_cstr(n, "Wow bigger string will resize buffer, now that old pointer is dead...");
+
+	tmp = istr_str(n);
+	tmp[2] = 'Z';
+	tmp[3] = 'Z';
+
+	istr_free(n, true);
+}
+
 static inline void assign_assert(istring *string, char *str)
 {
 	size_t str_len = strlen(str) + 1;
@@ -70,30 +88,39 @@ void test_assign()
 	istr_free(string, true);
 }
 
-void test_istr_str()
+static inline void insert_assert(istring *string, size_t index, char *str, size_t str_len, char *outcome)
 {
-	istring *n = istr_new_cstr("hello");
-	char *tmp;
+	size_t expected_len = istr_len(string) + str_len;
+	string = istr_insert_bytes(string, index, str, str_len);
 
-	tmp = istr_str(n);
-	tmp[2] = 'Z';
-	tmp[3] = 'Z';
+	assert(strcmp(istr_str(string), outcome) == 0);
+	assert(istr_len(string) == expected_len);
+	assert(istr_size(string) >= expected_len);
+}
 
-	n = istr_assign_cstr(n, "Wow bigger string will resize buffer, now that old pointer is dead...");
+void test_insert()
+{
+	istring *string = istr_new_bytes("hello", 5);
 
-	tmp = istr_str(n);
-	tmp[2] = 'Z';
-	tmp[3] = 'Z';
+	// case1: append
+	insert_assert(string, 5, "omg", 4, "helloomg");
 
-	istr_free(n, true);
+	// case2: prepend
+	insert_assert(string, 0, "omg", 3, "omghelloomg");
+
+	// case3: in the middle
+	insert_assert(string, 6, "omg", 3, "omghelomgloomg");
+	
+	istr_free(string, true);
 }
 
 int main()
 {
 	printf("Testing istrlib...\n");
 	test_new_and_free();
-	test_assign();
 	test_istr_str();
+	test_assign();
+	test_insert();
 	printf("istrlib testing success!\n");
 	return 0;
 }
