@@ -2,7 +2,7 @@ include config.mk
 
 EXE=irccd
 
-SRC= irccd.c istrlib.c
+SRC=irccd.c
 OBJ=${SRC:.c=.o}
 
 all: settings ${EXE}
@@ -25,15 +25,12 @@ ${EXE}: ${OBJ}
 # TESTING SECTION BELOW #
 #########################
 
-TESTS=test_istrlib
+TESTS=
 
 tests: ${TESTS}
 
 run_tests: tests
 	$(foreach test,${TESTS},./${test})
-
-test_istrlib: test_istrlib.c istrlib.c
-	${CC} -o test_istrlib test_istrlib.c istrlib.c
 
 #
 #
