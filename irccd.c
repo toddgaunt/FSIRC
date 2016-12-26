@@ -115,6 +115,7 @@ static int send_msg(int *sockfd, istring *msg)
 	}
 
 	if (NULL == msg) {
+		errno = ENOMEM;
 		return -1;
 	}
 
@@ -130,8 +131,7 @@ static istring* read_line(int *sockfd, istring *recvln)
 			return NULL;
 		}
 		istr_append_char(recvln, c);
-	} while ((c != '\n' && c != '\r') && recvln->len < IRC_BUF_MAX - 2);
-	recvln = istr_append_bytes(recvln, "\r\n", 2);
+	} while (c != '\n' && recvln->len < IRC_BUF_MAX - 2);
 	return recvln;
 }
 
@@ -145,6 +145,7 @@ static void login(int *sockfd, istring *nick, const istring *realname)
 	msg = istr_append(msg, nick);
 	msg = istr_append_bytes(msg, "\r\n", 2);
 	send_msg(sockfd, msg);
+	istr_free(msg, true);
 }
 
 
@@ -209,7 +210,7 @@ int main(int argc, char *argv[])
 	struct irccd_args args = {
 		.nick = NULL,
 		.realname = NULL,
-		.host = istr_new_bytes("185.30.166.38", 13),
+		.host = istr_new_cstr("185.30.166.38"),
 		.port = DEFAULT_PORT,
 		.daemon = 0,
 		.verbose = 0
@@ -240,10 +241,10 @@ int main(int argc, char *argv[])
 			case 'n': 
 				i++;
 				args.nick = istr_new_cstr(argv[i]); 
+				break;
+			case 'r':
+				i++;
 				args.realname = istr_new_cstr(argv[i]);
-				// Remove the '\0'
-				istr_pop_byte(args.nick);
-				istr_pop_byte(args.realname);
 				break;
 			case 'd': 
 				args.daemon = 1; 
@@ -281,13 +282,21 @@ int main(int argc, char *argv[])
 	istring *recvln = istr_new(NULL);
 
 	// Connection to irc server
-	int sockfd;
-	host_connect(&sockfd, args.host->buf, args.port);
+	int sockfd = 0;
+	host_connect(&sockfd, (args.host)->buf, args.port);
 	login(&sockfd, args.nick, args.realname);
 
-	while(1) {
+	istring *msg = istr_new_bytes("JOIN #Y35chan", 13);
+	istr_append_bytes(msg, "\r\n", 2);
+	send_msg(&sockfd, msg);
+	istr_free(msg, true);
+
+	int i = 0;
+	while(i < 3) {
 		recvln = read_line(&sockfd, recvln);
-		break;
+		printf("%s", recvln->buf);
+		istr_truncate_bytes(recvln, 0);
+		i++;
 	}
 
 	// Clean up all memory used
