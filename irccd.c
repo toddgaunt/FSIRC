@@ -13,6 +13,9 @@
 #include <signal.h>
 #include <unistd.h>
 #include <limits.h>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <sys/select.h>
 //#include <libconfig.h>//Use this to make config file
 #include <libistr.h>
 
@@ -22,11 +25,9 @@
 
 #define PATH_DEVNULL "/dev/null"
 
-#define PING_TIMEOUT 10
+#define PING_TIMEOUT 300
 
 static const size_t IRC_BUF_MAX = 512;
-
-static const unsigned long DEFAULT_PORT = 6667;
 
 static const char VERSION[] = "0.2";
 
@@ -35,11 +36,14 @@ struct irccd_args {
 	istring *realname;
 	istring *host;
 	unsigned long port;
+
+	istring *path;
 	int daemon;
 	int verbose;
 };
 
 struct irc_chan {
+	int fd; //File Descriptor of a channel's FIFO file
 	istring *name;
 	struct irc_chan *next;
 };
@@ -130,7 +134,7 @@ static istring* read_line(int *sockfd, istring *recvln)
 			perror("irccd: Unable to read socket");
 			return NULL;
 		}
-		istr_append_char(recvln, c);
+		istr_append_bytes(recvln, &c, 1);
 	} while (c != '\n' && recvln->len < IRC_BUF_MAX - 2);
 	return recvln;
 }
@@ -147,7 +151,6 @@ static void login(int *sockfd, istring *nick, const istring *realname)
 	send_msg(sockfd, msg);
 	istr_free(msg, true);
 }
-
 
 // Channel Linked List Functions:
 static struct irc_chan* find_chan(struct irc_chan *head, istring *name)
@@ -194,6 +197,10 @@ static void rm_chan(struct irc_chan *node)
 	free(garbage);
 }
 
+static void setup_dirtree(istring *path)
+{
+}
+
 static void free_all_irc_chans(struct irc_chan *head)
 {
 	struct irc_chan *tmp = head;
@@ -208,10 +215,11 @@ static void free_all_irc_chans(struct irc_chan *head)
 int main(int argc, char *argv[]) 
 {
 	struct irccd_args args = {
-		.nick = NULL,
-		.realname = NULL,
+		.nick = istr_new_cstr("user"),
+		.realname = istr_new_cstr("user"),
 		.host = istr_new_cstr("185.30.166.38"),
-		.port = DEFAULT_PORT,
+		.port = 6667,
+		.path = istr_new_cstr("irccd/"),
 		.daemon = 0,
 		.verbose = 0
 	};
@@ -222,6 +230,10 @@ int main(int argc, char *argv[])
 			case 'h': 
 				usage(); 
 				return EXIT_SUCCESS;
+				break;
+			case 'f':
+				i++;
+				args.path = istr_assign_cstr(args.path, argv[i]);
 				break;
 			case 'v': 
 				for (int j = 1; argv[i][j] && 'v' == argv[i][j]; j++) {
@@ -238,13 +250,17 @@ int main(int argc, char *argv[])
 			case 'p': 
 				i++;
 				args.port = strtoul(argv[i], NULL, 10); break; // daemon port
+				if (0 == args.port) {
+					usage();
+					return EXIT_FAILURE;
+				}
 			case 'n': 
 				i++;
-				args.nick = istr_new_cstr(argv[i]); 
+				args.nick = istr_assign_cstr(args.nick, argv[i]); 
 				break;
 			case 'r':
 				i++;
-				args.realname = istr_new_cstr(argv[i]);
+				args.realname = istr_assign_cstr(args.realname, argv[i]);
 				break;
 			case 'd': 
 				args.daemon = 1; 
@@ -254,15 +270,6 @@ int main(int argc, char *argv[])
 				return EXIT_FAILURE;
 			}
 		}
-	}
-
-	// Set some sane defaults if none were set by user
-	if (NULL == args.nick) {
-		args.nick = istr_new_bytes("user", 4);
-	}
-
-	if (NULL == args.realname) {
-		args.realname = istr_new(args.nick);
 	}
 
 	// A host must be provided by user, no default is given
@@ -278,6 +285,9 @@ int main(int argc, char *argv[])
 	// Linked list of channels user is connected to
 	struct irc_chan *head_chan = NULL;
 
+	// Buffer for formatting messages to send back to the irc server
+	istring *ping_buf = istr_new_cstr("PING ");
+	istr_append(ping_buf, args.host);
 	// Buffer for storing messages from the irc server
 	istring *recvln = istr_new(NULL);
 
@@ -285,24 +295,22 @@ int main(int argc, char *argv[])
 	int sockfd = 0;
 	host_connect(&sockfd, (args.host)->buf, args.port);
 	login(&sockfd, args.nick, args.realname);
+	setup_dirtree(args.path);
 
-	istring *msg = istr_new_bytes("JOIN #Y35chan", 13);
-	istr_append_bytes(msg, "\r\n", 2);
-	send_msg(&sockfd, msg);
-	istr_free(msg, true);
-
-	int i = 0;
-	while(i < 3) {
+	while(1) {
 		recvln = read_line(&sockfd, recvln);
-		printf("%s", recvln->buf);
-		istr_truncate_bytes(recvln, 0);
-		i++;
-	}
+		int rd;
+		struct timeval tval;
 
-	// Clean up all memory used
+		istr_truncate_bytes(recvln, 0);
+		break;
+	}
+	istr_free(ping_buf, true);
 	istr_free(recvln, true);
+
 	istr_free(args.nick, true);
 	istr_free(args.realname, true);
 	istr_free(args.host, true);
+	istr_free(args.path, true);
 	free_all_irc_chans(head_chan);
 }
