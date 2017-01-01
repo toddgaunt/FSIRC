@@ -114,7 +114,7 @@ static int send_msg(int *sockfd, istring *msg)
 {
 	msg = istr_prepend_bytes(msg, "PRIVMSG ", 8);
 	if (msg->len > IRC_BUF_MAX) {
-		msg = istr_truncate_bytes(msg, IRC_BUF_MAX - 2);
+		msg = istr_truncate(msg, IRC_BUF_MAX - 2);
 		msg = istr_append_bytes(msg, "\r\n", 2);
 	}
 
@@ -297,12 +297,23 @@ int main(int argc, char *argv[])
 	login(&sockfd, args.nick, args.realname);
 	setup_dirtree(args.path);
 
+	fd_set readfd;
+	int maxfd;
+	struct timeval tval;
 	while(1) {
-		recvln = read_line(&sockfd, recvln);
-		int rd;
-		struct timeval tval;
+		FD_ZERO(&readfd);
+		maxfd = sockfd;
+		for (struct irc_chan *chan = head_chan; chan; chan = chan->next) {
+			if (chan->fd > maxfd) {
+				maxfd = chan->fd;
+			}
+			// Reset the file descriptor
+			FD_SET(chan->fd, &readfd);
+		}
 
-		istr_truncate_bytes(recvln, 0);
+		recvln = read_line(&sockfd, recvln);
+
+		istr_truncate(recvln, 0);
 		break;
 	}
 	istr_free(ping_buf, true);
