@@ -17,6 +17,7 @@
 #include <sys/types.h>
 #include <sys/select.h>
 //#include <libconfig.h>//Use this to make config file
+#include <stdbool.h>
 #include <libistr.h>
 
 #ifndef PIPE_BUF /* If no PIPE_BUF defined */
@@ -27,9 +28,9 @@
 
 #define PING_TIMEOUT 300
 
-static const size_t IRC_BUF_MAX = 512;
+#define IRC_BUF_MAX 512
 
-static const char VERSION[] = "0.2";
+#define VERSION "0.2"
 
 struct irccd_args {
 	istring *nick;
@@ -87,7 +88,7 @@ static int daemonize(int nochdir, int noclose)
 	return 0;
 }
 
-static void host_connect(int *sockfd, char *cs_host, unsigned long port)
+static int host_connect(int sockfd, char *cs_host, unsigned long port)
 {
 	struct sockaddr_in servaddr; 
 	memset(&servaddr, 0, sizeof(struct sockaddr_in));
@@ -95,8 +96,8 @@ static void host_connect(int *sockfd, char *cs_host, unsigned long port)
 	servaddr.sin_port = htons(port);
 
 	// Define socket to be TCP
-	*sockfd = socket(AF_INET, SOCK_STREAM, 0);
-	if (*sockfd < 0) {
+	sockfd = socket(AF_INET, SOCK_STREAM, 0);
+	if (sockfd < 0) {
 		perror("irccd: cannot create socket");
 	}
 	// Convert ip address to usable bytes
@@ -105,41 +106,42 @@ static void host_connect(int *sockfd, char *cs_host, unsigned long port)
 	}
 
 	// Cast sockaddr pointer to servaddr because connect takes sockaddr structs
-	if (connect(*sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
+	if (connect(sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
 		perror("irccd: unable to connect socket");
 	}
+
+	return sockfd;
 }
 
-static int send_msg(int *sockfd, istring *msg)
+static int send_msg(int sockfd, istring *msg)
 {
-	msg = istr_prepend_bytes(msg, "PRIVMSG ", 8);
-	if (msg->len > IRC_BUF_MAX) {
-		msg = istr_truncate(msg, IRC_BUF_MAX - 2);
+	msg = istr_insert_bytes(msg, 0, "PRIVMSG ", 8);
+	if (istr_len(msg) > IRC_BUF_MAX) {
+		istr_trunc(msg, IRC_BUF_MAX - 2);
 		msg = istr_append_bytes(msg, "\r\n", 2);
 	}
 
 	if (NULL == msg) {
-		errno = ENOMEM;
 		return -1;
 	}
 
-	return send(*sockfd, msg->buf, msg->len, 0);
+	return send(sockfd, msg, istr_len(msg), 0);
 }
 
-static istring* read_line(int *sockfd, istring *recvln)
+static istring* read_line(int sockfd, istring *recvln)
 {/* Read chars from socket until a newline or IRC_BUF_MAX chars have been read */
 	char c;
 	do {
-		if (recv(*sockfd, &c, sizeof(char), 0) != sizeof(char)) {
+		if (recv(sockfd, &c, sizeof(char), 0) != sizeof(char)) {
 			perror("irccd: Unable to read socket");
 			return NULL;
 		}
-		istr_append_bytes(recvln, &c, 1);
-	} while (c != '\n' && recvln->len < IRC_BUF_MAX - 2);
+		recvln = istr_append_bytes(recvln, &c, 1);
+	} while (c != '\n' && istr_len(recvln) < IRC_BUF_MAX - 2);
 	return recvln;
 }
 
-static void login(int *sockfd, istring *nick, const istring *realname)
+static void login(int sockfd, istring *nick, const istring *realname)
 {
 	istring *msg = istr_new_bytes("USER ", 5);
 	msg = istr_append(msg, nick);
@@ -149,7 +151,7 @@ static void login(int *sockfd, istring *nick, const istring *realname)
 	msg = istr_append(msg, nick);
 	msg = istr_append_bytes(msg, "\r\n", 2);
 	send_msg(sockfd, msg);
-	istr_free(msg, true);
+	istr_free(msg);
 }
 
 // Channel Linked List Functions:
@@ -193,7 +195,7 @@ static void rm_chan(struct irc_chan *node)
 	struct irc_chan *garbage = node;
 	struct irc_chan **pp = &node;
 	*pp = node->next;
-	istr_free(garbage->name, true);
+	istr_free(garbage->name);
 	free(garbage);
 }
 
@@ -201,15 +203,23 @@ static void setup_dirtree(istring *path)
 {
 }
 
-static void free_all_irc_chans(struct irc_chan *head)
+static void handle_server_output(struct irccd_args *args, int sockfd)
 {
-	struct irc_chan *tmp = head;
-	while (tmp) {
-		struct irc_chan *garbage = tmp;
-		tmp = tmp->next;
-		istr_free(garbage->name, true);
-		free(garbage);
-	}
+	// Buffer for formatting messages to send back to the irc server
+	istring *ping_buf = istr_new_cstr("PING ");
+	ping_buf = istr_append(ping_buf, args->host);
+
+	// Buffer for storing messages from the irc server
+	istring *recvln = istr_new(NULL);
+	recvln = read_line(sockfd, recvln);
+	printf("server in: %s", recvln);
+
+	istr_free(recvln);
+	istr_free(ping_buf);
+}
+
+static void handle_client_input(struct irccd_args *args, struct irc_chan *chan)
+{
 }
 
 int main(int argc, char *argv[]) 
@@ -224,6 +234,7 @@ int main(int argc, char *argv[])
 		.verbose = 0
 	};
 
+	// Argument parsing
 	if (argc > 1) {
 		for(int i = 1; (i < argc) && (argv[i][0] == '-'); i++) {
 			switch (argv[i][1]) {
@@ -284,44 +295,56 @@ int main(int argc, char *argv[])
 
 	// Linked list of channels user is connected to
 	struct irc_chan *head_chan = NULL;
-
-	// Buffer for formatting messages to send back to the irc server
-	istring *ping_buf = istr_new_cstr("PING ");
-	istr_append(ping_buf, args.host);
-	// Buffer for storing messages from the irc server
-	istring *recvln = istr_new(NULL);
-
 	// Connection to irc server
 	int sockfd = 0;
-	host_connect(&sockfd, (args.host)->buf, args.port);
-	login(&sockfd, args.nick, args.realname);
-	setup_dirtree(args.path);
+	sockfd = host_connect(sockfd, args.host, args.port);
+	login(sockfd, args.nick, args.realname);
+	//setup_dirtree(args.path);
 
-	fd_set readfd;
-	int maxfd;
-	struct timeval tval;
-	while(1) {
-		FD_ZERO(&readfd);
+	fd_set readfds;
+	int maxfd, s_fd;
+	struct timeval tv;
+	while(true) {
+		FD_ZERO(&readfds);
 		maxfd = sockfd;
+		FD_SET(sockfd, &readfds);
 		for (struct irc_chan *chan = head_chan; chan; chan = chan->next) {
+			// Find the largest file-descriptor
 			if (chan->fd > maxfd) {
 				maxfd = chan->fd;
 			}
 			// Reset the file descriptor
-			FD_SET(chan->fd, &readfd);
+			FD_SET(chan->fd, &readfds);
 		}
 
-		recvln = read_line(&sockfd, recvln);
+		tv.tv_sec = 120;
+		tv.tv_usec = 0;
+		s_fd = select(maxfd+1, &readfds, 0, 0, &tv);
 
-		istr_truncate(recvln, 0);
-		break;
+		// See if the irc server has any new messages
+		if (FD_ISSET(sockfd, &readfds)) {
+			handle_server_output(&args, sockfd);
+		}
+		// See if any channel FIFOs have any new messages
+		for (struct irc_chan *chan = head_chan; chan; chan = chan->next) {
+			if (FD_ISSET(chan->fd, &readfds)) {
+				handle_client_input(&args, chan);
+			}
+		}
 	}
-	istr_free(ping_buf, true);
-	istr_free(recvln, true);
+	// Free the args object
+	istr_free(args.nick);
+	istr_free(args.realname);
+	istr_free(args.host);
+	istr_free(args.path);
 
-	istr_free(args.nick, true);
-	istr_free(args.realname, true);
-	istr_free(args.host, true);
-	istr_free(args.path, true);
-	free_all_irc_chans(head_chan);
+	// Free all channel objects
+	for (struct irc_chan *tmp = head_chan; tmp;) {
+		struct irc_chan *garbage = tmp;
+		tmp = tmp->next;
+		istr_free(garbage->name);
+		free(garbage);
+	}
+
+	return EXIT_SUCCESS;
 }
