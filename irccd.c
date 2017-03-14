@@ -38,6 +38,7 @@
 #define MSG_MAX 512
 
 #define DPRINT(...) fprintf(stderr, PRGM_NAME": "__VA_ARGS__)
+#define DFLUSH() fflush(stderr)
 
 #define EPRINT(x) perror(PRGM_NAME": "x)
 
@@ -186,6 +187,11 @@ channel_open(char *name, size_t namelen)
 	struct channel *chan;
 	struct oystr path;
 
+	if (namelen > PATH_MAX) {
+		DPRINT("Pathname '%s' too long", name);
+		goto except;
+	}
+
 	if (!(chan = malloc(sizeof(*chan))))
 		goto except;
 
@@ -203,6 +209,7 @@ channel_open(char *name, size_t namelen)
 	oystr_assign(&path, name, namelen);
 	if (mkdir(path.buf, S_IRWXU)) {
 		if (EEXIST != errno) {
+			EPRINT("Cannot create directory");
 			goto cleanup_path;
 		}
 	}
@@ -212,6 +219,7 @@ channel_open(char *name, size_t namelen)
 
 	if (0 > mkfifo(path.buf, S_IRWXU)) {
 		if (EEXIST != errno) {
+			EPRINT("Cannot create FIFO file");
 			goto cleanup_path;
 		}
 	}
@@ -248,12 +256,23 @@ channel_close(struct channel *chan)
 
 	*pp = chan->next;
 
-	//TODO delete all files in directory first
-	rmdir(garbage->name.buf);
-
 	close(garbage->fd);
 	oystr_deinit(&garbage->name);
 	free(garbage);
+}
+
+/**
+ * Cleanup all channels and exit.
+ */
+static void
+channel_cleanup(struct channel *chan_head) {
+	DPRINT("Cleaning up directory tree... ");
+	DFLUSH();
+	while (chan_head) {
+		channel_close(chan_head);
+	}
+	DPRINT("done\n");
+	exit(EXIT_FAILURE);
 }
 
 static int
@@ -366,11 +385,19 @@ int main(int argc, char **argv)
 		usage();
 
 	// Assign default argument values if none were given.
-	if (!irc.nick.buf)
-		oystr_assign(&irc.nick, "user", sizeof("user"));
+	if (!irc.nick.buf) {
+		if (0 > oystr_assign(&irc.nick, "user", sizeof("user"))) {
+			DPRINT("Failed to assign requested nickname, probably too long.\n");
+			exit(EXIT_FAILURE);
+		}
+	}
 
-	if (!irc.realname.buf)
-		oystr_assign(&irc.realname, "user", sizeof("user"));
+	if (!irc.realname.buf) {
+		if (0 > oystr_assign(&irc.realname, "user", sizeof("user"))) {
+			DPRINT("Failed to assign requested realname, probably too long.\n");
+			exit(EXIT_FAILURE);
+		}
+	}
 
 	if (!irc.port)
 		irc.port = 6667;
@@ -410,19 +437,19 @@ int main(int argc, char **argv)
 		struct channel *chan_active;
 
 		if (!(irc.sockfd = tcpopen(irc.host.buf, irc.port))) {
-			DPRINT("Unable to connect to %s\n", irc.host.buf);
-			exit(EXIT_FAILURE);
+			DPRINT("Unable to connect to host %s\n", irc.host.buf);
+			channel_cleanup(chan_head);
 		}
 
 		// The root channel. Represents the main server channel.
 		if (!(chan_head = channel_open("./", 2))) {
 			DPRINT("Unable to create root channel.\n");
-			exit(EXIT_FAILURE);
+			channel_cleanup(chan_head);
 		}
 
 		if (irc_login(&msg, &irc)) {
 			DPRINT("Unable to login to irc server.\n");
-			exit(EXIT_FAILURE);
+			channel_cleanup(chan_head);
 		}
 
 		while(irc.sockfd) {
@@ -469,11 +496,6 @@ int main(int argc, char **argv)
 					*/
 				}
 			}
-		}
-
-		// Free all channels
-		while (chan_head) {
-			channel_close(chan_head);
 		}
 
 		// Free the message buffer
