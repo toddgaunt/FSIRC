@@ -1,350 +1,459 @@
 /* See LICENSE file for copyright and license details */
 #include <arpa/inet.h> 
 #include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
 #include <malloc.h>
 #include <netdb.h>
+#include <oystr.h>
+#include <signal.h>
+#include <stdbool.h>
 #include <stdio.h> 
 #include <stdlib.h>
 #include <string.h>
-#include <fcntl.h>
-#include <sys/types.h>
+#include <sys/select.h>
 #include <sys/socket.h>
-#include <sys/un.h>
-#include <signal.h>
-#include <unistd.h>
-#include <limits.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
-#include <sys/select.h>
-//#include <libconfig.h>//Use this to make config file
-#include <stdbool.h>
-#include <libistr.h>
+#include <sys/un.h>
+#include <unistd.h>
 
-#ifndef PIPE_BUF /* If no PIPE_BUF defined */
-#define PIPE_BUF _POSIX_PIPE_BUF
+#ifndef PRGM_NAME
+#define PRGM_NAME "irccd"
+#endif
+
+#ifndef VERSION
+#define VERSION "0.0.0"
+#endif
+
+#ifndef PREFIX
+#define PREFIX "/usr/local"
 #endif
 
 #define PATH_DEVNULL "/dev/null"
 
 #define PING_TIMEOUT 300
 
-#define IRC_BUF_MAX 512
+#define MSG_MAX 512
 
-#define VERSION "0.2"
+#define DEBUG 1
+#if DEBUG
+#define LOG_ERR(...) fprintf(stderr, PRGM_NAME": "__VA_ARGS__)
+#else
+#define LOG_ERR(...)
+#endif
 
-struct irccd_args {
-	istring *nick;
-	istring *realname;
-	istring *host;
-	unsigned long port;
+#define EPRINT(x) perror(PRGM_NAME": "x)
 
-	istring *path;
-	int daemon;
-	int verbose;
+// Bitmask flags for program arguments.
+enum flags {
+	FLAG_DAEMON = 1 << 0,
 };
 
-struct irc_chan {
-	int fd; //File Descriptor of a channel's FIFO file
-	istring *name;
-	struct irc_chan *next;
+struct channel {
+	int fd;
+	struct oystr name;
+	struct channel *next;
 };
 
-// Functions
+// Structure containing irc server connection information.
+struct irc_conn {
+	int sockfd;
+	int port;
+	struct oystr nick;
+	struct oystr realname;
+	struct oystr host;
+};
 
 static void usage()
 {
-	fprintf(stderr, "irccd - irc client daemon - %s\n"
-		"usage: irccd [-h] [-v] [-d]\n", VERSION);
+	fprintf(stderr, PRGM_NAME" - irc client daemon - %s\n"
+		"usage: "PRGM_NAME" [-h] [-p] [-d] HOSTNAME\n", VERSION);
+	exit(EXIT_FAILURE);
 }
 
-static int daemonize(int nochdir, int noclose) 
-{/* Fork the process, detach from terminal, and redirect std streams */
+static int daemonize_fork()
+{
 	switch (fork()) { 
 	case -1:
 		return -1;
 	case 0: 
-		break;
+		return 0;
 	default: 
 		exit(EXIT_SUCCESS);
 	}
+}
 
-	if (setsid() < 0) return -1;
+static int daemonize(int nochdir, int noclose) 
+{
+	// Fork once to go into the background.
+	if (0 > daemonize_fork())
+		return -1;
+
+	if (0 > setsid())
+		return -1;
 
 	if (!nochdir) {
-		if (chdir("/") < 0) return -1;
+		chdir("/");
 	}
 
+	// Fork once more to ensure no TTY can be reaquired.
+	if (0 > daemonize_fork())
+		return -1;
+
 	if (!noclose) {
-		int devnull = open(PATH_DEVNULL, O_RDWR);
-		if (devnull < 0) return -1;
-		dup2(devnull, STDIN_FILENO);
-		dup2(devnull, STDOUT_FILENO);
-		dup2(devnull, STDERR_FILENO);
-		close(STDIN_FILENO);
-		close(STDOUT_FILENO);
-		close(STDERR_FILENO);
+		int fd;
+		if (!(fd = open(PATH_DEVNULL, O_RDWR)))
+			return -1;
+		dup2(fd, STDIN_FILENO);
+		dup2(fd, STDOUT_FILENO);
+		dup2(fd, STDERR_FILENO);
+		// Only close the fd if it isn't one of the std streams.
+		if (fd > 2)
+			close(fd);
 	}
 
 	return 0;
 }
 
-static int host_connect(int sockfd, char *cs_host, unsigned long port)
+static int
+tcpopen(char *host, int port)
 {
-	struct sockaddr_in servaddr; 
-	memset(&servaddr, 0, sizeof(struct sockaddr_in));
-	servaddr.sin_family = AF_INET;
-	servaddr.sin_port = htons(port);
+	int sockfd;
+	struct addrinfo hints;
+	struct addrinfo *res;
+	struct addrinfo *ptr;
+	char portstr[16];
 
-	// Define socket to be TCP
-	sockfd = socket(AF_INET, SOCK_STREAM, 0);
-	if (sockfd < 0) {
-		perror("irccd: cannot create socket");
-	}
-	// Convert ip address to usable bytes
-	if (inet_pton(AF_INET, cs_host, &servaddr.sin_addr) <= 0) {
-		fprintf(stderr, "irccd: cannot transform ip\n");
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
+
+	snprintf(portstr, sizeof(portstr), "%d", port);
+	printf(portstr);
+
+	// Get the host ip address.
+	if (getaddrinfo(host, portstr, &hints, &res)) {
+		return -1;
 	}
 
-	// Cast sockaddr pointer to servaddr because connect takes sockaddr structs
-	if (connect(sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
-		perror("irccd: unable to connect socket");
+	printf("hi\n");
+	exit(1);
+	
+	// Attempt to connect to any available address.
+	for (ptr=res; ptr; ptr=ptr->ai_next) {
+		if (0 > (sockfd = socket(ptr->ai_family, ptr->ai_socktype,
+				ptr->ai_protocol)))
+			continue;
+
+		if (0 > connect(sockfd, ptr->ai_addr, ptr->ai_addrlen))
+			continue;
+
+		// Successful connection.
+		break;
 	}
+
+	// No connection was made
+	if (!ptr)
+		sockfd = -1;
+
+	if (res)
+		freeaddrinfo(res);
 
 	return sockfd;
 }
 
-static int send_msg(int sockfd, istring *msg)
+static int
+irc_readline(struct oystr *recvln, struct irc_conn *irc)
 {
-	msg = istr_insert_bytes(msg, 0, "PRIVMSG ", 8);
-	if (istr_len(msg) > IRC_BUF_MAX) {
-		istr_trunc(msg, IRC_BUF_MAX - 2);
-		msg = istr_append_bytes(msg, "\r\n", 2);
-	}
-
-	if (NULL == msg) {
-		return -1;
-	}
-
-	return send(sockfd, msg, istr_len(msg), 0);
-}
-
-static istring* read_line(int sockfd, istring *recvln)
-{/* Read chars from socket until a newline or IRC_BUF_MAX chars have been read */
 	char c;
 	do {
-		if (recv(sockfd, &c, sizeof(char), 0) != sizeof(char)) {
-			perror("irccd: Unable to read socket");
-			return NULL;
-		}
-		recvln = istr_append_bytes(recvln, &c, 1);
-	} while (c != '\n' && istr_len(recvln) < IRC_BUF_MAX - 2);
-	return recvln;
+		if (read(irc->sockfd, &c, sizeof(c)) != sizeof(c))
+			return -1;
+
+		if (0 > oystr_append(recvln, &c, 1))
+			return -1;
+
+	} while (c != '\n' && MSG_MAX >= recvln->len);
+	// Removes the \r\n found at the end of irc messages.
+	oystr_trunc(recvln, 2);
+
+	return 0;
 }
 
-static void login(int sockfd, istring *nick, const istring *realname)
+/**
+ * Create a new channel struct, and open a directory containing all input/output
+ * files used to by the channel to communicate.
+ *
+ * The path is provied by the 'name' parameter. 'len' is the length of 'name'.
+ */
+static struct channel*
+channel_open(char *name, size_t namelen)
 {
-	istring *msg = istr_new_bytes("USER ", 5);
-	msg = istr_append(msg, nick);
-	msg = istr_append_bytes(msg, " 8 * :", 6);
-	msg = istr_append(msg, realname);
-	msg = istr_append_bytes(msg, "\r\nNICK ", 7);
-	msg = istr_append(msg, nick);
-	msg = istr_append_bytes(msg, "\r\n", 2);
-	send_msg(sockfd, msg);
-	istr_free(msg);
-}
+	struct channel *chan;
+	struct oystr path;
 
-// Channel Linked List Functions:
-static struct irc_chan* find_chan(struct irc_chan *head, istring *name)
-{
-	if (NULL == head || NULL == name) {
-		errno = EINVAL;
-		return NULL;
+	if (!(chan = malloc(sizeof(*chan))))
+		goto except;
+
+	memset(chan, 0, sizeof(*chan));
+
+	if (0 > oystr_assign(&chan->name, name, namelen))
+		goto cleanup_chan;
+
+	// Create the channel directory.
+	oystr_init(&path);
+	if (0 > oystr_ensure_size(&path, namelen + 3)) {
+		goto cleanup_chan_name;
 	}
 
-	struct irc_chan *tmp = head;
-	while (tmp) {
-		if (0 == istr_eq(tmp->name, name)) {
-			return tmp;
+	oystr_assign(&path, name, namelen);
+	if (mkdir(path.buf, S_IRWXU)) {
+		if (EEXIST != errno) {
+			goto cleanup_path;
 		}
-		tmp = tmp->next;
 	}
+
+	// Open up the channel input file.
+	oystr_append(&path, "/in", 3);
+
+	if (0 > mkfifo(path.buf, S_IRWXU)) {
+		if (EEXIST != errno) {
+			goto cleanup_path;
+		}
+	}
+
+	if (!(chan->fd = open(path.buf, O_RDONLY | O_NONBLOCK)))
+		goto cleanup_path;
+
+	return chan;
+
+cleanup_path:
+	oystr_deinit(&path);
+cleanup_chan_name:
+	oystr_deinit(&chan->name);
+cleanup_chan:
+	free(chan);
+except:
 	return NULL;
 }
 
-static struct irc_chan* prepend_chan(struct irc_chan *head, istring *name)
+/**
+ * Close a channel struct and cleanup it's corresponding directory on the
+ * filesystem.
+ */
+static void
+channel_close(struct channel *chan)
 {
-	struct irc_chan *tmp = malloc(sizeof(tmp)); 
-	if (!tmp) {
-		errno = ENOMEM;
-		return NULL;
-	}
-	tmp->next = head;
-	tmp->name = istr_new(name);
-	tmp->next = NULL;
+	struct channel *garbage;
+	struct channel **pp;
 
-	return tmp;
-}
+	pp = &chan;
+	garbage = chan;
 
-static void rm_chan(struct irc_chan *node)
-{
-	if (NULL == node) {
-		return;
-	}
+	*pp = chan->next;
 
-	struct irc_chan *garbage = node;
-	struct irc_chan **pp = &node;
-	*pp = node->next;
-	istr_free(garbage->name);
+	//TODO delete all files in directory first
+	rmdir(garbage->name.buf);
+
+	close(garbage->fd);
+	oystr_deinit(&garbage->name);
 	free(garbage);
 }
 
-static void setup_dirtree(istring *path)
+static int
+channel_write(const char *name, size_t namelen)
 {
+	FILE *fp;
+	struct oystr path;
+
+	oystr_init(&path);
+	if (0 > oystr_ensure_size(&path, namelen + 4))
+		goto except;
+
+	oystr_append(&path, name, namelen);
+	oystr_append(&path, "/out", 4);
+
+	if (!(fp = fopen(path.buf, "a")))
+		goto cleanup_path;
+
+	return 0;
+
+cleanup_path:
+	oystr_deinit(&path);
+except:
+	return -1;
 }
 
-static void handle_server_output(struct irccd_args *args, int sockfd)
+/**
+ * Login to an irc server.
+ */
+static int
+irc_login(struct oystr *msg, struct irc_conn *irc)
 {
-	// Buffer for formatting messages to send back to the irc server
-	istring *ping_buf = istr_new_cstr("PING ");
-	ping_buf = istr_append(ping_buf, args->host);
+	if (0 > oystr_snprintf(msg, MSG_MAX+1, "USER %s 8 &:%s NICK %s\r\n",
+			irc->nick, irc->realname, irc->nick))
+		return -1;
 
-	// Buffer for storing messages from the irc server
-	istring *recvln = istr_new(NULL);
-	recvln = read_line(sockfd, recvln);
-	printf("server in: %s", recvln);
+	if (0 > write(irc->sockfd, msg->buf, msg->len))
+		return -1;
 
-	istr_free(recvln);
-	istr_free(ping_buf);
+	return 0;
 }
 
-static void handle_client_input(struct irccd_args *args, struct irc_chan *chan)
+static bool
+run_server(struct irc_conn *irc)
 {
-}
-
-int main(int argc, char *argv[]) 
-{
-	struct irccd_args args = {
-		.nick = istr_new_cstr("user"),
-		.realname = istr_new_cstr("user"),
-		.host = istr_new_cstr("185.30.166.38"),
-		.port = 6667,
-		.path = istr_new_cstr("irccd/"),
-		.daemon = 0,
-		.verbose = 0
-	};
-
-	// Argument parsing
-	if (argc > 1) {
-		for(int i = 1; (i < argc) && (argv[i][0] == '-'); i++) {
-			switch (argv[i][1]) {
-			case 'h': 
-				usage(); 
-				return EXIT_SUCCESS;
-				break;
-			case 'f':
-				i++;
-				args.path = istr_assign_cstr(args.path, argv[i]);
-				break;
-			case 'v': 
-				for (int j = 1; argv[i][j] && 'v' == argv[i][j]; j++) {
-					args.verbose++; 
-				}
-				break;
-			case 'q': 
-				for (int j = 1; argv[i][j] && argv[i][j] == 'q'; j++) {
-					if (args.verbose > 0) {
-						args.verbose--; 
-					}
-				}
-				break;
-			case 'p': 
-				i++;
-				args.port = strtoul(argv[i], NULL, 10); break; // daemon port
-				if (0 == args.port) {
-					usage();
-					return EXIT_FAILURE;
-				}
-			case 'n': 
-				i++;
-				args.nick = istr_assign_cstr(args.nick, argv[i]); 
-				break;
-			case 'r':
-				i++;
-				args.realname = istr_assign_cstr(args.realname, argv[i]);
-				break;
-			case 'd': 
-				args.daemon = 1; 
-				continue; // flag the daemonize process to start
-			default: 
-				usage();
-				return EXIT_FAILURE;
-			}
-		}
-	}
-
-	// A host must be provided by user, no default is given
-	if (NULL == args.host) {
-		fprintf(stderr, "irccd: No host given, not starting\n");
-		return EXIT_FAILURE;
-	}
-
-	if (args.daemon) {
-		daemonize(0, 0);
-	}
-
-	// Linked list of channels user is connected to
-	struct irc_chan *head_chan = NULL;
-	// Connection to irc server
-	int sockfd = 0;
-	sockfd = host_connect(sockfd, args.host, args.port);
-	login(sockfd, args.nick, args.realname);
-	//setup_dirtree(args.path);
-
-	fd_set readfds;
-	int maxfd, s_fd;
+	int maxfd;
+	int ret;
+	fd_set fds;
 	struct timeval tv;
-	while(true) {
-		FD_ZERO(&readfds);
-		maxfd = sockfd;
-		FD_SET(sockfd, &readfds);
-		for (struct irc_chan *chan = head_chan; chan; chan = chan->next) {
-			// Find the largest file-descriptor
-			if (chan->fd > maxfd) {
+	// A Single Message bufer is used for communication, this way needless
+	// extra memory allocations can be avoided.
+	struct oystr msg;
+	// Joined Channel linked list.
+	struct channel *chan_head;
+	// Current active channel.
+	struct channel *chan_active;
+
+	if (!(irc->sockfd = tcpopen(irc->host.buf, irc->port)))
+		LOG_ERR("Unable to connect to %s\n", irc->host.buf);
+
+	// The root channel. Represents the main server channel.
+	if (!(chan_head = channel_open("./", 2)))
+		LOG_ERR("Unable to create root channel.");
+
+	oystr_init(&msg);
+	if (!irc_login(&msg, irc))
+		LOG_ERR("Unable to login to irc server.");
+
+	while(irc->sockfd) {
+		FD_ZERO(&fds);
+
+		// Reset all file descriptors and find the largest. 
+		maxfd = irc->sockfd;
+		FD_SET(irc->sockfd, &fds);
+		for (struct channel *chan=chan_head; chan; chan=chan->next) {
+			if (chan->fd > maxfd)
 				maxfd = chan->fd;
-			}
-			// Reset the file descriptor
-			FD_SET(chan->fd, &readfds);
+			FD_SET(chan->fd, &fds);
 		}
 
 		tv.tv_sec = 120;
 		tv.tv_usec = 0;
-		s_fd = select(maxfd+1, &readfds, 0, 0, &tv);
+		ret = select(maxfd + 1, &fds, 0, 0, &tv);
 
-		// See if the irc server has any new messages
-		if (FD_ISSET(sockfd, &readfds)) {
-			handle_server_output(&args, sockfd);
+		if (0 > ret) {
+			LOG_ERR("select() failed.\n");
 		}
-		// See if any channel FIFOs have any new messages
-		for (struct irc_chan *chan = head_chan; chan; chan = chan->next) {
-			if (FD_ISSET(chan->fd, &readfds)) {
-				handle_client_input(&args, chan);
+
+		// Check if the irc server has new messages.
+		if (FD_ISSET(irc->sockfd, &fds)) {
+			//parse_irc_input(&msg, irc, chan_head);
+			//channel_write(irc->out);
+		}
+
+		// Check if any channel's input FIFO has new messages.
+		for (struct channel *chan=chan_head; chan; chan=chan->next) {
+			if (FD_ISSET(chan->fd, &fds)) {
+				//parse_client_input(&msg, chan->fd);
+				//irc_send(irc, &msg);
 			}
 		}
 	}
-	// Free the args object
-	istr_free(args.nick);
-	istr_free(args.realname);
-	istr_free(args.host);
-	istr_free(args.path);
 
-	// Free all channel objects
-	for (struct irc_chan *tmp = head_chan; tmp;) {
-		struct irc_chan *garbage = tmp;
-		tmp = tmp->next;
-		istr_free(garbage->name);
-		free(garbage);
+	// Free all channels
+	while (chan_head) {
+		channel_close(chan_head);
 	}
+
+	return true;
+}
+
+int main(int argc, char **argv) 
+{
+	bool running;
+	char *path;
+	enum flags flags;
+	struct irc_conn irc;
+
+	path = NULL;
+	flags = 0;
+	memset(&irc, 0, sizeof(irc));
+
+	for (int i = 1; i < argc; ++i) {
+		if (argv[i][0] == '-') {
+			switch (argv[i][1]) {
+			case 'h': 
+				usage(); 
+				break;
+			case 'p': 
+				++i;
+				irc.port = strtoul(argv[i], NULL, 10);
+				break;
+			case 'n': 
+				++i;
+				oystr_assign_cstr(&irc.nick, argv[i]); 
+				break;
+			case 'r':
+				++i;
+				oystr_assign_cstr(&irc.realname, argv[i]);
+				break;
+			case 'd':
+				++i;
+				path = argv[i];
+				break;
+			case 'D': 
+				flags |= FLAG_DAEMON; 
+				break;
+			default: 
+				usage();
+			}
+		} else {
+			oystr_assign_cstr(&irc.host, argv[i]);
+		}
+	}
+
+	// An initial host must be specified.
+	if (!irc.host.buf)
+		usage();
+
+	// Assign default argument values if none were given.
+	if (!irc.nick.buf)
+		oystr_assign(&irc.nick, "user", sizeof("user"));
+
+	if (!irc.realname.buf)
+		oystr_assign(&irc.realname, "user", sizeof("user"));
+
+	if (!irc.port)
+		irc.port = 6667;
+
+	// Change the directory only if specified to.
+	if (path) {
+		if (0 > mkdir(path, S_IRWXU)) {
+			if (EEXIST != errno) {
+				EPRINT("Cannot create directory");
+			}
+		}
+
+		if (0 > chdir(path)) {
+			EPRINT("Cannot change directory");
+		}
+	}
+
+	// Daemonize last so that any argument errors can be printed to caller.
+	if (FLAG_DAEMON == (flags & FLAG_DAEMON))
+		daemonize(1, 0);
+
+	running = true;
+	while(running) {
+		running = run_server(&irc);
+	}
+
+	oystr_deinit(&irc.nick);
+	oystr_deinit(&irc.realname);
+	oystr_deinit(&irc.host);
 
 	return EXIT_SUCCESS;
 }

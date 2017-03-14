@@ -1,14 +1,13 @@
 include config.mk
 
-EXE=irccd
-
+TARGET=irccd
 SRC=irccd.c
 OBJ=${SRC:.c=.o}
 
-all: settings ${EXE}
+all: settings ${TARGET}
 
 settings:
-	@echo tsh build settings:
+	@echo ${TARGET} build settings:
 	@echo "CFLAGS   = ${CFLAGS}"
 	@echo "LDFLAGS  = ${LDFLAGS}"
 	@echo "CC       = ${CC}"
@@ -18,26 +17,11 @@ settings:
 
 ${OBJ}: config.mk
 
-${EXE}: ${OBJ}
-	${CC} -o ${EXE} ${OBJ} ${LDFLAGS}
-
-#@@@@@@@@@@@@@@@@@@@@@@@#
-# TESTING SECTION BELOW #
-#########################
-
-TESTS=
-
-tests: ${TESTS}
-
-run_tests: tests
-	$(foreach test,${TESTS},./${test})
-
-#
-#
-#
+${TARGET}: ${OBJ}
+	${CC} -o ${TARGET} ${OBJ} ${LDFLAGS}
 
 clean:
-	rm -f ${EXE} ${OBJ}
+	rm -f ${TARGET} ${OBJ}
 	rm -f ${TESTS}
 
 .PHONY: all settings clean
