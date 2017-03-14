@@ -37,14 +37,12 @@
 
 #define MSG_MAX 512
 
-#define DEBUG 1
-#if DEBUG
-#define LOG_ERR(...) fprintf(stderr, PRGM_NAME": "__VA_ARGS__)
-#else
-#define LOG_ERR(...)
-#endif
+#define DPRINT(...) fprintf(stderr, PRGM_NAME": "__VA_ARGS__)
 
 #define EPRINT(x) perror(PRGM_NAME": "x)
+
+// Array indices for tokenize_irc_output().
+enum {TOK_NICKSRV, TOK_USER, TOK_CMD, TOK_CHAN, TOK_ARG, TOK_TEXT, TOK_LAST};
 
 // Bitmask flags for program arguments.
 enum flags {
@@ -131,15 +129,11 @@ tcpopen(char *host, int port)
 	hints.ai_socktype = SOCK_STREAM;
 
 	snprintf(portstr, sizeof(portstr), "%d", port);
-	printf(portstr);
 
 	// Get the host ip address.
 	if (getaddrinfo(host, portstr, &hints, &res)) {
 		return -1;
 	}
-
-	printf("hi\n");
-	exit(1);
 	
 	// Attempt to connect to any available address.
 	for (ptr=res; ptr; ptr=ptr->ai_next) {
@@ -165,19 +159,17 @@ tcpopen(char *host, int port)
 }
 
 static int
-irc_readline(struct oystr *recvln, struct irc_conn *irc)
+readline(struct oystr *recvln, int sockfd)
 {
 	char c;
 	do {
-		if (read(irc->sockfd, &c, sizeof(c)) != sizeof(c))
+		if (read(sockfd, &c, sizeof(c)) != sizeof(c))
 			return -1;
 
 		if (0 > oystr_append(recvln, &c, 1))
 			return -1;
 
 	} while (c != '\n' && MSG_MAX >= recvln->len);
-	// Removes the \r\n found at the end of irc messages.
-	oystr_trunc(recvln, 2);
 
 	return 0;
 }
@@ -227,6 +219,8 @@ channel_open(char *name, size_t namelen)
 	if (!(chan->fd = open(path.buf, O_RDONLY | O_NONBLOCK)))
 		goto cleanup_path;
 
+	oystr_deinit(&path);
+
 	return chan;
 
 cleanup_path:
@@ -263,7 +257,7 @@ channel_close(struct channel *chan)
 }
 
 static int
-channel_write(const char *name, size_t namelen)
+channel_write(const char *name, size_t namelen, struct oystr *msg)
 {
 	FILE *fp;
 	struct oystr path;
@@ -278,6 +272,11 @@ channel_write(const char *name, size_t namelen)
 	if (!(fp = fopen(path.buf, "a")))
 		goto cleanup_path;
 
+	fwrite(msg->buf, msg->len, 1, fp);
+
+	oystr_deinit(&path);
+	fclose(fp);
+
 	return 0;
 
 cleanup_path:
@@ -286,14 +285,27 @@ except:
 	return -1;
 }
 
+static int
+tokenize_irc_output(struct oystr *tok, size_t toksize, struct oystr *msg)
+{
+}
+
+static int
+proc_irc_cmd(struct oystr **tok, size_t toksize)
+{
+}
+
 /**
  * Login to an irc server.
  */
 static int
 irc_login(struct oystr *msg, struct irc_conn *irc)
 {
-	if (0 > oystr_snprintf(msg, MSG_MAX+1, "USER %s 8 &:%s NICK %s\r\n",
-			irc->nick, irc->realname, irc->nick))
+	if (0 > oystr_snprintf(msg, MSG_MAX, "NICK %s\r\nUSER %s localhost %s :%s\r\n",
+			irc->nick.buf,
+			irc->nick.buf,
+			irc->host.buf,
+			irc->realname.buf))
 		return -1;
 
 	if (0 > write(irc->sockfd, msg->buf, msg->len))
@@ -302,81 +314,15 @@ irc_login(struct oystr *msg, struct irc_conn *irc)
 	return 0;
 }
 
-static bool
-run_server(struct irc_conn *irc)
-{
-	int maxfd;
-	int ret;
-	fd_set fds;
-	struct timeval tv;
-	// A Single Message bufer is used for communication, this way needless
-	// extra memory allocations can be avoided.
-	struct oystr msg;
-	// Joined Channel linked list.
-	struct channel *chan_head;
-	// Current active channel.
-	struct channel *chan_active;
-
-	if (!(irc->sockfd = tcpopen(irc->host.buf, irc->port)))
-		LOG_ERR("Unable to connect to %s\n", irc->host.buf);
-
-	// The root channel. Represents the main server channel.
-	if (!(chan_head = channel_open("./", 2)))
-		LOG_ERR("Unable to create root channel.");
-
-	oystr_init(&msg);
-	if (!irc_login(&msg, irc))
-		LOG_ERR("Unable to login to irc server.");
-
-	while(irc->sockfd) {
-		FD_ZERO(&fds);
-
-		// Reset all file descriptors and find the largest. 
-		maxfd = irc->sockfd;
-		FD_SET(irc->sockfd, &fds);
-		for (struct channel *chan=chan_head; chan; chan=chan->next) {
-			if (chan->fd > maxfd)
-				maxfd = chan->fd;
-			FD_SET(chan->fd, &fds);
-		}
-
-		tv.tv_sec = 120;
-		tv.tv_usec = 0;
-		ret = select(maxfd + 1, &fds, 0, 0, &tv);
-
-		if (0 > ret) {
-			LOG_ERR("select() failed.\n");
-		}
-
-		// Check if the irc server has new messages.
-		if (FD_ISSET(irc->sockfd, &fds)) {
-			//parse_irc_input(&msg, irc, chan_head);
-			//channel_write(irc->out);
-		}
-
-		// Check if any channel's input FIFO has new messages.
-		for (struct channel *chan=chan_head; chan; chan=chan->next) {
-			if (FD_ISSET(chan->fd, &fds)) {
-				//parse_client_input(&msg, chan->fd);
-				//irc_send(irc, &msg);
-			}
-		}
-	}
-
-	// Free all channels
-	while (chan_head) {
-		channel_close(chan_head);
-	}
-
-	return true;
-}
-
 int main(int argc, char **argv) 
 {
 	bool running;
 	char *path;
 	enum flags flags;
 	struct irc_conn irc;
+	// Singular Message buffer used for sending and receiving messages
+	// from the irc server.
+	struct oystr msg;
 
 	path = NULL;
 	flags = 0;
@@ -434,11 +380,13 @@ int main(int argc, char **argv)
 		if (0 > mkdir(path, S_IRWXU)) {
 			if (EEXIST != errno) {
 				EPRINT("Cannot create directory");
+				exit(EXIT_FAILURE);
 			}
 		}
 
 		if (0 > chdir(path)) {
 			EPRINT("Cannot change directory");
+			exit(EXIT_FAILURE);
 		}
 	}
 
@@ -446,9 +394,90 @@ int main(int argc, char **argv)
 	if (FLAG_DAEMON == (flags & FLAG_DAEMON))
 		daemonize(1, 0);
 
+	// Set the message buffer to the maximum irc message size.
+	oystr_init(&msg);
+	oystr_ensure_size(&msg, MSG_MAX);
+
 	running = true;
 	while(running) {
-		running = run_server(&irc);
+		int maxfd;
+		int ret;
+		fd_set fds;
+		struct timeval tv;
+		// Joined Channel linked list.
+		struct channel *chan_head;
+		// Current active channel.
+		struct channel *chan_active;
+
+		if (!(irc.sockfd = tcpopen(irc.host.buf, irc.port))) {
+			DPRINT("Unable to connect to %s\n", irc.host.buf);
+			exit(EXIT_FAILURE);
+		}
+
+		// The root channel. Represents the main server channel.
+		if (!(chan_head = channel_open("./", 2))) {
+			DPRINT("Unable to create root channel.\n");
+			exit(EXIT_FAILURE);
+		}
+
+		if (irc_login(&msg, &irc)) {
+			DPRINT("Unable to login to irc server.\n");
+			exit(EXIT_FAILURE);
+		}
+
+		while(irc.sockfd) {
+			FD_ZERO(&fds);
+
+			// Reset all file descriptors and find the largest. 
+			maxfd = irc.sockfd;
+			FD_SET(irc.sockfd, &fds);
+			for (struct channel *chan=chan_head; chan; chan=chan->next) {
+				if (chan->fd > maxfd)
+					maxfd = chan->fd;
+				FD_SET(chan->fd, &fds);
+			}
+
+			tv.tv_sec = 120;
+			tv.tv_usec = 0;
+			ret = select(maxfd + 1, &fds, 0, 0, &tv);
+
+			if (0 > ret) {
+				DPRINT("select() failed.\n");
+			}
+
+			// Check if the irc server has new messages.
+			if (FD_ISSET(irc.sockfd, &fds)) {
+				struct oystr tokens[TOK_LAST];
+				readline(&msg, irc.sockfd);
+				printf(msg.buf);
+				/*
+				tokenize_irc_output(tokens, sizeof(tokens),
+						&msg);
+				proc_irc_cmd(tokens, sizeof(tokens));
+				channel_write(tokens[TOK_CHAN].buf,
+						tokens[TOK_CHAN].len, &msg);
+				*/
+				channel_write("./", 2, &msg);
+			}
+
+			// Check if any channel's input FIFO has new messages.
+			for (struct channel *chan=chan_head; chan; chan=chan->next) {
+				if (FD_ISSET(chan->fd, &fds)) {
+					readline(&msg, chan->fd);
+					/*
+					proc_client_cmd(&msg);
+					*/
+				}
+			}
+		}
+
+		// Free all channels
+		while (chan_head) {
+			channel_close(chan_head);
+		}
+
+		// Free the message buffer
+		oystr_deinit(&msg);
 	}
 
 	oystr_deinit(&irc.nick);
