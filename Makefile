@@ -1,27 +1,41 @@
 include config.mk
 
-TARGET=irccd
-SRC=irccd.c
-OBJ=${SRC:.c=.o}
+TARGET=yorha
 
-all: settings ${TARGET}
+SRC = ${TARGET:=.c}
+HDR = ${TARGET:=.h}
+OBJ = ${TARGET:=.o}
+MAN1 = ${TARGET:=.1} 
+SRC_DIR = 
 
-settings:
-	@echo ${TARGET} build settings:
-	@echo "CFLAGS   = ${CFLAGS}"
-	@echo "LDFLAGS  = ${LDFLAGS}"
-	@echo "CC       = ${CC}"
+all: options ${TARGET}
 
-.c.o:
-	${CC} -c ${CFLAGS} $<
+options: config.mk
+	@printf "${TARGET} build options:\n"
+	@printf "CFLAGS  = ${CFLAGS}\n"
+	@printf "LDFLAGS = ${LDFLAGS}\n"
+	@printf "CC      = ${CC}\n"
+
+%.o: ${SRC_DIR}/%.c ${SRC_DIR}/${HDR} config.mk
+	@printf "CC $<\n"
+	@${CC} ${CFLAGS} -c $<
 
 ${OBJ}: config.mk
 
 ${TARGET}: ${OBJ}
-	${CC} -o ${TARGET} ${OBJ} ${LDFLAGS}
+	@printf "CC $<\n"
+	@${CC} -o ${TARGET} ${OBJ} ${LDFLAGS}
+
+test: test.c ${TARGET}
+	@printf "CC $<\n"
+	@${CC} ${CFLAGS} ${LDFLAGS} -o $@ test.c ${TARGET}
+
+check: test
+	@./test
 
 clean:
-	rm -f ${TARGET} ${OBJ}
-	rm -f ${TESTS}
+	@printf "Cleaning ... "
+	@rm -f ${TARGET} ${OBJ} test
+	@printf "done.\n"
 
-.PHONY: all settings clean
+.PHONY: all options clean dist install uninstall
