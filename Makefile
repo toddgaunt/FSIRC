@@ -1,12 +1,9 @@
 include config.mk
 
-TARGET=yorha
 
-SRC = ${TARGET:=.c}
-HDR = ${TARGET:=.h}
-OBJ = ${TARGET:=.o}
-MAN1 = ${TARGET:=.1} 
-SRC_DIR = 
+TARGET = nerv
+SRC = nerv.c libnerv.c
+HDR = libnerv.h
 
 all: options ${TARGET}
 
@@ -16,7 +13,7 @@ options: config.mk
 	@printf "LDFLAGS = ${LDFLAGS}\n"
 	@printf "CC      = ${CC}\n"
 
-%.o: ${SRC_DIR}/%.c ${SRC_DIR}/${HDR} config.mk
+%.o: ${HDR} %.c config.mk
 	@printf "CC $<\n"
 	@${CC} ${CFLAGS} -c $<
 

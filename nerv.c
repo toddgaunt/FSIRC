@@ -19,6 +19,7 @@
 #include <unistd.h>
 #include <time.h>
 
+#include "libnerv.h"
 #include "config.h"
 
 #ifndef PRGM_NAME
@@ -54,14 +55,20 @@ enum flags {
 	FLAG_DAEMON = 1 << 0,
 };
 
-// Structure containing irc server connection information.
 struct irc_conn {
-	int sockfd;
+	struct server *next;
+	int fd;
 	int port;
-	char nick[NICK_MAX];
-	char realname[REALNAME_MAX];
-	char host[HOST_NAME_MAX];
-	struct irc_conn *next;
+	sds *nick;
+	sds *realname;
+	sds *host;
+};
+
+struct cli_conn {
+	struct client *next;
+	int fd;
+	socklen_t addrlen;
+	struct sockaddr_in addr;
 };
 
 static void usage()
@@ -111,68 +118,6 @@ static int daemonize(int nochdir, int noclose)
 		if (fd > 2)
 			close(fd);
 	}
-
-	return 0;
-}
-
-/**
- * Connect to the given host with the provided function (bind() or connect()).
- */
-int
-tcpopen(int *sockfd, const char *host, const char *port, 
-		int (*open)(int, const struct sockaddr *, socklen_t))
-{
-	struct addrinfo hints;
-	struct addrinfo *res;
-	struct addrinfo *ptr;
-
-	memset(&hints, 0, sizeof(hints));
-	hints.ai_family = AF_UNSPEC;
-	hints.ai_socktype = SOCK_STREAM;
-
-	// Get the ip address of 'host'.
-	if (getaddrinfo(host, port, &hints, &res)) {
-		return -1;
-	}
-	
-	// Attempt to connect to any available address.
-	for (ptr=res; ptr; ptr=ptr->ai_next) {
-		if (0 > (*sockfd = socket(ptr->ai_family, ptr->ai_socktype,
-				ptr->ai_protocol)))
-			continue;
-
-		if (0 > open(*sockfd, ptr->ai_addr, ptr->ai_addrlen))
-			continue;
-
-
-		// Successful connection.
-		break;
-	}
-
-	// No connection was made
-	if (!ptr) {
-		if (res)
-			freeaddrinfo(res);
-		return -1;
-	}
-
-	freeaddrinfo(res);
-	return 0;
-}
-
-static int
-readline(char *buf, size_t *len, size_t maxrecv, int fd)
-{
-	char ch;
-
-	*len = 0;
-	do {
-		if (read(fd, &ch, 1) != 1)
-			return -1;
-		buf[*len] = ch;
-		*len += 1;
-	} while (ch != '\n' && *len < maxrecv);
-	buf[*len] = '\0';
 
 	return 0;
 }
@@ -294,50 +239,23 @@ except:
 }
 */
 
-/*TODO(todd): implement these
-static int
-tokenize_irc_output(struct oystr *tok, size_t toksize, struct oystr *msg)
+clients_add(struct clients *clients, int sockfd)
 {
 }
-
-static int
-proc_irc_cmd(struct oystr **tok, size_t toksize)
-{
-}
-*/
-
-/**
- * Login to an irc server.
-static int
-irc_login(char *msg, size_t msgsize, struct irc_conn *irc)
-{
-	int len;
-	len = snprintf(msg, msgsize, "NICK %s\r\nUSER %s localhost %s :%s\r\n",
-			irc->nick.buf,
-			irc->nick.buf,
-			irc->host.buf,
-			irc->realname.buf);
-
-	if (0 > len) {
-		return -1;
-	}
-
-	if (0 > write(irc->sockfd, msg, len))
-		return -1;
-
-	return 0;
-}
-*/
 
 static int
 run_server(int sockfd) {
+	int i;
 	int maxfd;
 	fd_set rd;
 	struct timeval tv;
-	struct irc_conn *tmp;
-	struct irc_conn *irc_head = NULL;
-	char msg[MSG_MAX + 1];
-	size_t msglen;
+	time_t last_response;
+	char buf[MSG_MAX + 1];
+	size_t buflen;
+	struct irc_conn *irc = NULL;
+	struct cli_conn *cli = NULL;
+	struct irc_conn *sp;
+	struct cli_conn *cp;
 
 	while (sockfd) {
 		FD_ZERO(&rd);
@@ -345,44 +263,53 @@ run_server(int sockfd) {
 		// Reset all file descriptors and find the largest. 
 		maxfd = sockfd;
 		FD_SET(sockfd, &rd);
-		for (tmp = irc_head; tmp; tmp = tmp->next) {
-			if (tmp->sockfd > maxfd)
-				maxfd = tmp->sockfd;
-			FD_SET(tmp->sockfd, &rd);
+		for (sp = irc; sp; sp = sp->next) {
+			if (sp->fd > maxfd)
+				maxfd = sp->fd;
+			FD_SET(sp->fd, &rd);
 		}
 
-		printf("loop\n");
+		for (cp = cli; cp; cp = cp->next) {
+			if (cp->fd > maxfd)
+				maxfd = cp->fd;
+			FD_SET(cp->fd);
+		}
+
 		tv.tv_sec = 120;
 		tv.tv_usec = 0;
 		select(maxfd + 1, &rd, 0, 0, &tv);
 
-		// Check if there were any incoming messages.
-		if (FD_ISSET(sockfd, &rd)) {
-			int fd;
-			struct sockaddr_in client;
-			socklen_t size;
-
-			fd = accept(sockfd, (struct sockaddr *)&client, &size);
-
-			if (0 > readline(msg, &msglen, MSG_MAX, fd)) {
-				DPRINT("Failed to readline() from client\n");
-				//TODO(todd): Handle client
-				//communication failure
-			}
-			//proc_client_cmd(msg);
+		if (rv < 0) {
+		} else if (rv == 0) {
 		}
 
+		// Check for any new client connections.
+		if (FD_ISSET(sockfd, &rd)) {
+			struct client *tmp;
+			tmp = malloc(sizeof(*tmp));
+			tmp->fd = accept(tmp->sockfd,
+					(struct sockaddr *)&tmp->addr,
+					&tmp->addrlen);
+			tmp->next = cli;
+			cli = tmp;
+		}
 
-		// Check for any new messages from the irc servers.
-		for (tmp = irc_head; tmp; tmp = tmp->next) {
-			if (FD_ISSET(tmp->sockfd, &rd)) {
-				if (0 > readline(msg, &msglen, MSG_MAX, tmp->sockfd)) {
-					DPRINT("Failed to readline() from '%s'\n",
-							tmp->host);
-					//TODO(todd): Handle server
-					//communication failure
+		// Check for new server messages
+		for (sp = irc; sp; sp = sp->next) {
+			if (FD_ISSET(sp->fd, &rd)) {
+				if (0 > readline(buf, &buflen, MSG_MAX, tmp->sockfd));
+			}
+			irc_proc_cmd();
+		}
+
+		// Check for new client messages
+		for (cp = cli; cp; cp = cp->next) {
+			if (FD_ISSET(cp->fd, &rd)) {
+				if (0 > readline(buf, &buflen, MSG_MAX, tmp->sockfd)) {
+					DPRINT("Failed reading line from client %s\n");
 				}
-				//proc_irc_cmd(msg);
+				printf(buf);
+				cli_proc_cmd();
 			}
 		}
 	}
