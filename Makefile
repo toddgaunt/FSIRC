@@ -1,9 +1,9 @@
 include config.mk
 
 
-TARGET = nerv
-SRC = nerv.c libnerv.c
-HDR = libnerv.h
+TARGET = yorha
+SRC = yorha.c libyorha.c
+HDR = libyorha.h
 
 all: options ${TARGET}
 

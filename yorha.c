@@ -19,7 +19,7 @@
 #include <unistd.h>
 #include <time.h>
 
-#include "libnerv.h"
+#include "libyorha.h"
 #include "config.h"
 
 #ifndef PRGM_NAME
@@ -59,9 +59,9 @@ struct irc_conn {
 	struct server *next;
 	int fd;
 	int port;
-	sds *nick;
-	sds *realname;
-	sds *host;
+	stx nick;
+	stx realname;
+	stx host;
 };
 
 struct cli_conn {
@@ -250,12 +250,13 @@ run_server(int sockfd) {
 	fd_set rd;
 	struct timeval tv;
 	time_t last_response;
-	char buf[MSG_MAX + 1];
-	size_t buflen;
+	stx buf;
 	struct irc_conn *irc = NULL;
 	struct cli_conn *cli = NULL;
 	struct irc_conn *sp;
 	struct cli_conn *cp;
+
+	stxnew(&buf, MSG_MAX + 1);
 
 	while (sockfd) {
 		FD_ZERO(&rd);

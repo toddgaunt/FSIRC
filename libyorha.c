@@ -1,10 +1,10 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdio.h>
-#include "libnerv.h"
+#include "libyorha.h"
 	
 int
-tcpopen(int *sockfd, const char *host, const char *port, 
+yorha_tcpopen(int *sockfd, const char *host, const char *port, 
 		int (*open)(int, const struct sockaddr *, socklen_t))
 {
 	struct addrinfo hints;
@@ -45,7 +45,7 @@ tcpopen(int *sockfd, const char *host, const char *port,
 }
 
 int
-readline(char *buf, size_t *len, size_t maxrecv, int fd)
+yorha_readline(char *buf, size_t *len, size_t maxrecv, int fd)
 {
 	char ch;
 
