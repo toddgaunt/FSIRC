@@ -1,6 +1,6 @@
+#include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-#include <stdio.h>
 #include "libyorha.h"
 	
 int
@@ -44,7 +44,7 @@ yorha_tcpopen(int *sockfd, const char *host, const char *port,
 	return 0;
 }
 
-int
+char *buf;
 yorha_readline(char *buf, size_t *len, size_t maxrecv, int fd)
 {
 	char ch;
@@ -52,11 +52,11 @@ yorha_readline(char *buf, size_t *len, size_t maxrecv, int fd)
 	*len = 0;
 	do {
 		if (read(fd, &ch, 1) != 1)
-			return -1;
+			return NULL;
 		buf[*len] = ch;
 		*len += 1;
 	} while (ch != '\n' && *len < maxrecv);
 	buf[*len] = '\0';
 
-	return 0;
+	return buf;
 }

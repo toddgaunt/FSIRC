@@ -1,7 +1,7 @@
+#include <netdb.h>
 #include <stdlib.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <netdb.h>
 
 /**
  * Establish a new tcp connection as a server or client.
@@ -12,8 +12,8 @@
  * tcp socket connected to the remote host:port.
  */
 int
-tcpopen(int *sockfd, const char *host, const char *port, 
+yorha_tcpopen(int *sockfd, const char *host, const char *port, 
 		int (*open)(int, const struct sockaddr *, socklen_t));
 
 int
-readline(char *buf, size_t *len, size_t maxrecv, int fd);
+yorha_readline(char *buf, size_t *len, size_t maxrecv, int fd);
