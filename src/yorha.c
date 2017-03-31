@@ -49,7 +49,6 @@
 #define MSG_MAX 512
 
 #define DPRINT(...) fprintf(stderr, PRGM_NAME": "__VA_ARGS__)
-#define EPRINT(x) DPRINT(x)
 
 // Array indices for tokenize_irc_output().
 enum {TOK_NICKSRV, TOK_USER, TOK_CMD, TOK_CHAN, TOK_ARG, TOK_TEXT, TOK_LAST};
@@ -59,22 +58,22 @@ enum {
 	FLAG_DAEMON = 1 << 0,
 };
 
-typedef struct irccon {
+struct irccon {
 	int fd;
 	int port;
 	stx nick;
 	stx realname;
 	stx host;
-} irccon;
+};
 
-typedef struct clicon {
+struct clicon {
 	int fd;
 	socklen_t addrlen;
 	struct sockaddr_in addr;
-} clicon;
+};
 
-DEFINE_LIST(irccon)
-DEFINE_LIST(clicon)
+DEFINE_LIST(irccon, struct irccon)
+DEFINE_LIST(clicon, struct clicon)
 
 static void usage()
 {
@@ -134,11 +133,6 @@ static int daemonize(int nochdir, int noclose)
 
 static int
 run_server(int sockfd) {
-	int i, rv;
-	int maxfd;
-	fd_set rd;
-	struct timeval tv;
-	time_t last_response;
 	stx buf;
 	irccon_list *irc = NULL;
 	clicon_list *cli = NULL;
@@ -146,6 +140,11 @@ run_server(int sockfd) {
 	stxnew(&buf, MSG_MAX);
 
 	while (sockfd) {
+		int maxfd;
+		fd_set rd;
+		struct timeval tv;
+		int rv;
+
 		FD_ZERO(&rd);
 
 		// Reset all file descriptors and find the largest. 
@@ -178,27 +177,32 @@ run_server(int sockfd) {
 			tmp->node.fd = accept(tmp->node.fd,
 					(struct sockaddr *)&tmp->node.addr,
 					&tmp->node.addrlen);
-			tmp->next = cli;
-			cli = tmp;
+			clicon_listadd(cli, tmp);
 		}
 
 		// Check for new server messages
 		for (irccon_list *sp = irc; sp; sp = sp->next) {
 			if (FD_ISSET(sp->node.fd, &rd)) {
-				if (0 > yorha_readline(buf.mem, &buf.len, MSG_MAX, sp->node.fd))
-					;
+				if (0 > yorha_readline(buf.mem, &buf.len,
+							buf.size,
+							sp->node.fd)) {
+				}
 			}
 		}
 
 		// Check for new client messages
 		for (clicon_list *cp = cli; cp; cp = cp->next) {
 			if (FD_ISSET(cp->node.fd, &rd)) {
-				if (0 > yorha_readline(buf.mem, &buf.len, MSG_MAX, cp->node.fd)) {
-					DPRINT("Failed reading line from client %s\n");
+				if (0 > yorha_readline(buf.mem, &buf.len,
+							buf.size,
+							cp->node.fd)) {
+					DPRINT("Failed reading line from client\n");
 				}
 			}
 		}
 	}
+	
+	stxdel(&buf);
 
 	return 0;
 }
