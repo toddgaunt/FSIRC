@@ -12,11 +12,11 @@ struct NAME##_list {                                                          \
 };                                                                            \
                                                                               \
 static inline NAME##_list *                                                   \
-NAME##_listinit(struct NAME##_list *head)                                     \
+NAME##_listinit(struct NAME##_list *lp)                                       \
 {                                                                             \
-	head->next = head;                                                    \
-	head->prev = head;                                                    \
-	return head;                                                          \
+	lp->next = lp;                                                        \
+	lp->prev = lp;                                                        \
+	return lp;                                                            \
 }                                                                             \
                                                                               \
 static inline void                                                            \
@@ -29,11 +29,11 @@ NAME##_listadd(struct NAME##_list *head, struct NAME##_list *new)             \
 }                                                                             \
                                                                               \
 static inline NAME##_list *                                                   \
-NAME##_listrm(struct NAME##_list *head)                                       \
+NAME##_listrm(struct NAME##_list *lp)                                         \
 {                                                                             \
-	head->prev->next = head->next;                                        \
-	head->next->prev = head->prev;                                        \
-	return head;                                                          \
+	lp->prev->next = lp->next;                                            \
+	lp->next->prev = lp->prev;                                            \
+	return lp;                                                            \
 }                                                                             \
                                                                               \
 static inline void                                                            \
@@ -46,9 +46,9 @@ NAME##_listxch(struct NAME##_list *old, struct NAME##_list *new)              \
 }                                                                             \
                                                                               \
 static inline bool                                                            \
-NAME##_listempty(struct NAME##_list *head)                                    \
+NAME##_listempty(struct NAME##_list *lp)                                      \
 {                                                                             \
-    return !(head == head->next) || !(head == head->prev);                    \
+    return !(lp == lp->next) || !(lp == lp->prev);                            \
 }
 
 #endif
