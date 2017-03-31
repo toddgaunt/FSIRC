@@ -1,9 +1,21 @@
 include config.mk
 
-
 TARGET = yorha
-SRC = yorha.c libyorha.c
-HDR = libyorha.h
+
+SRC_DIR = src
+BUILD_DIR = build
+DEBUG_DIR = debug
+
+SRC = $(notdir $(wildcard ${SRC_DIR}/*.c))
+OBJ = $(addprefix ${BUILD_DIR}/, ${SRC:.c=.o})
+DEBUG_OBJ = $(addprefix ${DEBUG_DIR}/, ${SRC:.c=.o})
+
+# Macro flags for injecting information into the program during compile time.
+MFLAGS = \
+       -DVERSION=\"${VERSION}\"\
+       -DPREFIX=\"${PREFIX}\"\
+       -DVARPREFIX=\"${VARPREFIX}\"\
+       -DPRGM_NAME=\"${TARGET}\"
 
 all: options ${TARGET}
 
@@ -13,26 +25,21 @@ options: config.mk
 	@printf "LDFLAGS = ${LDFLAGS}\n"
 	@printf "CC      = ${CC}\n"
 
-%.o: ${HDR} %.c config.mk
-	@printf "CC $<\n"
-	@${CC} ${CFLAGS} -c $<
+${BUILD_DIR}/%.o: ${SRC_DIR}/%.c
+	@mkdir -p $(dir $@)
+	@printf "CC $@ ... "
+	@${CC} ${CFLAGS} ${LDFLAGS} ${MFLAGS} -c -o $@ $<
+	@printf "done.\n"
 
 ${OBJ}: config.mk
 
 ${TARGET}: ${OBJ}
 	@printf "CC $<\n"
-	@${CC} -o ${TARGET} ${OBJ} ${LDFLAGS}
-
-test: test.c ${TARGET}
-	@printf "CC $<\n"
-	@${CC} ${CFLAGS} ${LDFLAGS} -o $@ test.c ${TARGET}
-
-check: test
-	@./test
+	@${CC} ${CFLAGS} ${LDFLAGS} ${MFLAGS} -o ${TARGET} ${OBJ}
 
 clean:
 	@printf "Cleaning ... "
-	@rm -f ${TARGET} ${OBJ} test
+	rm -f ${TARGET} ${OBJ}
 	@printf "done.\n"
 
 .PHONY: all options clean dist install uninstall
