@@ -3,16 +3,16 @@
 
 #include <stdbool.h>
 
-#define LIST_DECLARE(name) struct name##_list;
-#define LIST_DEFINE(name, type)                                               \
-struct name##_list {                                                          \
-	struct type ## _list *next;                                           \
-	struct type ## _list *prev;                                           \
-	type node;                                                            \
+#define LIST_DECLARE(NAME) struct NAME##_list;
+#define LIST_DEFINE(NAME, TYPE)                                               \
+struct NAME##_list {                                                          \
+	struct NAME##_list *next;                                             \
+	struct NAME##_list *prev;                                             \
+	TYPE node;                                                            \
 };                                                                            \
                                                                               \
-static inline name##_list *                                                   \
-name##_listinit(struct name ## _list *head)                                   \
+static inline NAME##_list *                                                   \
+NAME##_listinit(struct NAME ## _list *head)                                   \
 {                                                                             \
 	head->next = head;                                                    \
 	head->prev = head;                                                    \
@@ -20,7 +20,7 @@ name##_listinit(struct name ## _list *head)                                   \
 }                                                                             \
                                                                               \
 static inline void                                                            \
-name##_listadd(struct name##_list *head, struct name##_list *new)             \
+NAME##_listadd(struct NAME##_list *head, struct NAME##_list *new)             \
 {                                                                             \
 	new->next = head;                                                     \
 	new->prev = head->prev;                                               \
@@ -28,8 +28,8 @@ name##_listadd(struct name##_list *head, struct name##_list *new)             \
 	new->next->prev = new;                                                \
 }                                                                             \
                                                                               \
-static inline name##_list *                                                   \
-name##_listrm(struct name##_list *head)                                       \
+static inline NAME##_list *                                                   \
+NAME##_listrm(struct NAME##_list *head)                                       \
 {                                                                             \
 	head->prev->next = head->next;                                        \
 	head->next->prev = head->prev;                                        \
@@ -37,7 +37,7 @@ name##_listrm(struct name##_list *head)                                       \
 }                                                                             \
                                                                               \
 static inline void                                                            \
-name##_listxch(struct name##_list *old, struct name##_list *new)              \
+NAME##_listxch(struct NAME##_list *old, struct NAME##_list *new)              \
 {                                                                             \
 	old->next->prev = new;                                                \
 	old->prev->next = new;                                                \
@@ -46,7 +46,7 @@ name##_listxch(struct name##_list *old, struct name##_list *new)              \
 }                                                                             \
                                                                               \
 static inline bool                                                            \
-name##_listempty(struct name##_list *head)                                    \
+NAME##_listempty(struct NAME##_list *head)                                    \
 {                                                                             \
     return !(head == head->next) || !(head == head->prev);                    \
 }
