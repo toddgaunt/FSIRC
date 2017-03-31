@@ -12,7 +12,7 @@ struct NAME##_list {                                                          \
 };                                                                            \
                                                                               \
 static inline NAME##_list *                                                   \
-NAME##_listinit(struct NAME ## _list *head)                                   \
+NAME##_listinit(struct NAME##_list *head)                                     \
 {                                                                             \
 	head->next = head;                                                    \
 	head->prev = head;                                                    \
