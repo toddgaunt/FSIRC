@@ -1,8 +1,9 @@
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 #include "libyorha.h"
-	
+
 int
 yorha_tcpopen(int *sockfd, const char *host, const char *port, 
 		int (*open)(int, const struct sockaddr *, socklen_t))
@@ -44,19 +45,23 @@ yorha_tcpopen(int *sockfd, const char *host, const char *port,
 	return 0;
 }
 
-char *buf;
+int
 yorha_readline(char *buf, size_t *len, size_t maxrecv, int fd)
 {
 	char ch;
 
 	*len = 0;
 	do {
-		if (read(fd, &ch, 1) != 1)
-			return NULL;
+		// Unable to read anymore, as the buffer is full.
+		if (*len >= maxrecv)
+			return maxrecv;
+
+		if (1 != read(fd, &ch, 1))
+			return -1;
+
 		buf[*len] = ch;
 		*len += 1;
-	} while (ch != '\n' && *len < maxrecv);
-	buf[*len] = '\0';
+	} while (ch != '\n');
 
-	return buf;
+	return 0;
 }

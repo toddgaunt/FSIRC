@@ -3,6 +3,14 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 
+#ifndef HOST_NAME_MAX
+#define HOST_NAME_MAX 255
+#endif
+
+#define NICK_MAX 32
+#define REALNAME_MAX 32
+#define MSG_MAX 512
+
 /**
  * Establish a new tcp connection as a server or client.
  *
@@ -24,7 +32,8 @@ yorha_tcpopen(int *sockfd, const char *host, const char *port,
  * been read or a newline character is read. The newline character is included
  * in the read.
  * 
- * Return: Number of characters read into 'buf'.
+ * Return: -1 if unable to read from 'fd'. 0 if 'fd' was read until EOF.
+ * 'maxrecv' if 'maxrecv' characters were read but fd did not yet reach EOF.
  */
 int
 yorha_readline(char *buf, size_t *len, size_t maxrecv, int fd);
