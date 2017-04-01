@@ -40,25 +40,25 @@
 #define PATH_NULL "/dev/null"
 #endif
 
-#ifndef HOST_NAME_MAX
-#define HOST_NAME_MAX 255
-#endif
+#define LOGINFO(...)\
+	{logtime(stderr);\
+	fprintf(stderr, " "PRGM_NAME": info: "__VA_ARGS__);}
 
-#define NICK_MAX 32
-#define REALNAME_MAX 32
-#define MSG_MAX 512
+#define LOGERROR(...)\
+	{logtime(stderr);\
+	fprintf(stderr, " "PRGM_NAME": error: "__VA_ARGS__);}
 
-#define DPRINT(...) fprintf(stderr, PRGM_NAME": "__VA_ARGS__)
-
-// Array indices for tokenize_irc_output().
-enum {TOK_NICKSRV, TOK_USER, TOK_CMD, TOK_CHAN, TOK_ARG, TOK_TEXT, TOK_LAST};
+#define LOGFATAL(...)\
+	{logtime(stderr);\
+	fprintf(stderr, " "PRGM_NAME": fatal: "__VA_ARGS__);\
+	exit(EXIT_FAILURE);}
 
 // Bitmask flags for program arguments.
 enum {
 	FLAG_DAEMON = 1 << 0,
 };
 
-struct irccon {
+struct irc {
 	int fd;
 	int port;
 	stx nick;
@@ -66,23 +66,37 @@ struct irccon {
 	stx host;
 };
 
-struct clicon {
+struct client {
 	int fd;
 	socklen_t addrlen;
 	struct sockaddr_in addr;
 };
 
-DEFINE_LIST(irccon, struct irccon)
-DEFINE_LIST(clicon, struct clicon)
+LIST_DEFINE(irc_list, struct irc)
+LIST_DEFINE(client_list, struct client)
 
-static void usage()
+static void
+usage()
 {
-	fprintf(stderr, PRGM_NAME" - irc client daemon - %s\n"
-		"usage: "PRGM_NAME" [-h] [-p] [-d] HOSTNAME\n", VERSION);
+	fprintf(stderr, "usage: "PRGM_NAME" [-h] [-p] [-v] [-D]\n");
 	exit(EXIT_FAILURE);
 }
 
-static int daemonize_fork()
+void
+logtime(FILE *fp)
+{
+	char date[16];
+	time_t t;
+	const struct tm *tm;
+
+	t = time(NULL);
+	tm = localtime(&t);
+	strftime(date, sizeof(date), "%m %d %T", tm);
+	fprintf(fp, date);
+}
+
+static int
+daemonize_fork()
 {
 	int pid = fork();
 
@@ -99,7 +113,8 @@ static int daemonize_fork()
  * Daemonize a process. If nochdir is 1, the process won't switch to '/'.
  * If noclose is 1, standard streams won't be redirected to /dev/null.
  */
-static int daemonize(int nochdir, int noclose) 
+static int
+daemonize(int nochdir, int noclose) 
 {
 	// Fork once to go into the background.
 	if (0 > daemonize_fork())
@@ -131,11 +146,21 @@ static int daemonize(int nochdir, int noclose)
 	return 0;
 }
 
-static int
-run_server(int sockfd) {
+void
+run(const char *port)
+{
+	int sockfd = 0;
+	struct irc_list *irc = NULL;
+	struct client_list *cli = NULL;
 	stx buf;
-	irccon_list *irc = NULL;
-	clicon_list *cli = NULL;
+
+	LOGINFO("Successfully initialized.\n");
+
+	if (0 > yorha_tcpopen(&sockfd, "localhost", port, bind))
+		LOGFATAL("Failed to bind to port %s.\n", port);
+
+	if (0 > listen(sockfd, 4))
+		LOGFATAL("Failed to listen on port %s.\n", port);
 
 	stxnew(&buf, MSG_MAX);
 
@@ -150,13 +175,13 @@ run_server(int sockfd) {
 		// Reset all file descriptors and find the largest. 
 		maxfd = sockfd;
 		FD_SET(sockfd, &rd);
-		for (irccon_list *sp = irc; sp; sp = sp->next) {
+		for (struct irc_list *sp = irc; sp; sp = sp->next) {
 			if (sp->node.fd > maxfd)
 				maxfd = sp->node.fd;
 			FD_SET(sp->node.fd, &rd);
 		}
 
-		for (clicon_list *cp = cli; cp; cp = cp->next) {
+		for (struct client_list *cp = cli; cp; cp = cp->next) {
 			if (cp->node.fd > maxfd)
 				maxfd = cp->node.fd;
 			FD_SET(cp->node.fd, &rd);
@@ -172,45 +197,53 @@ run_server(int sockfd) {
 
 		// Check for any new client connections.
 		if (FD_ISSET(sockfd, &rd)) {
-			clicon_list *tmp;
+			struct client_list *tmp;
 			tmp = malloc(sizeof(*tmp));
-			tmp->node.fd = accept(tmp->node.fd,
+			if (!tmp) {
+				LOGERROR("Unable to allocate memory for new client connection\n.");
+			} else {
+				tmp->node.fd = accept(tmp->node.fd,
 					(struct sockaddr *)&tmp->node.addr,
 					&tmp->node.addrlen);
-			clicon_listadd(cli, tmp);
+				client_list_prepend(cli, tmp);
+			}
 		}
 
 		// Check for new server messages
-		for (irccon_list *sp = irc; sp; sp = sp->next) {
+		for (struct irc_list *sp = irc; sp; sp = sp->next) {
 			if (FD_ISSET(sp->node.fd, &rd)) {
 				if (0 > yorha_readline(buf.mem, &buf.len,
 							buf.size,
 							sp->node.fd)) {
+					//TODO(todd): error
+					LOGERROR("Unable to read message from server\n");
+				} else {
+					//TODO(todd): do something
 				}
 			}
 		}
 
 		// Check for new client messages
-		for (clicon_list *cp = cli; cp; cp = cp->next) {
+		for (struct client_list *cp = cli; cp; cp = cp->next) {
 			if (FD_ISSET(cp->node.fd, &rd)) {
 				if (0 > yorha_readline(buf.mem, &buf.len,
 							buf.size,
 							cp->node.fd)) {
-					DPRINT("Failed reading line from client\n");
+					//TODO(todd): error
+				} else {
+					//TODO(todd): do something
 				}
 			}
 		}
 	}
 	
 	stxdel(&buf);
-
-	return 0;
 }
 
-int main(int argc, char **argv) 
+int
+main(int argc, char **argv) 
 {
 	int flags = 0;
-	int sockfd = 0;
 	const char *port = NULL;
 
 	for (int i = 1; i < argc; ++i) {
@@ -244,15 +277,7 @@ int main(int argc, char **argv)
 	if (FLAG_DAEMON == (flags & FLAG_DAEMON))
 		daemonize(0, 0);
 
-	if (0 > yorha_tcpopen(&sockfd, "localhost", port, bind)) {
-		DPRINT("Failed to bind to port '%s'\n", port);
-		exit(EXIT_FAILURE);
-	}
+	run(port);
 
-	if (0 > listen(sockfd, 4)) {
-		DPRINT("Failed to listen on port '%s'\n", port);
-		exit(EXIT_FAILURE);
-	}
-
-	return run_server(sockfd); 
+	return 0;
 }
