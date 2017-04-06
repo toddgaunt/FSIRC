@@ -28,16 +28,6 @@ void list_init(struct list *head)
     head->prev = head;
 }
 
-struct list *list_next(struct list *head)
-{
-    return head->next;
-}
-
-struct list *list_prev(struct list *head)
-{
-    return head->prev;
-}
-
 void list_prepend(struct list *head, struct list *new)
 {
     list_link(new, head, head->prev);

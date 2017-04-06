@@ -24,6 +24,10 @@
 #include "yorha_config.h"
 #include "list.h"
 
+#ifndef PATH_MAX
+#define PATH_MAX
+#endif
+
 #ifndef PRGM_NAME
 #define PRGM_NAME "null"
 #endif
@@ -58,21 +62,20 @@ enum {
 	FLAG_DAEMON = 1 << 0,
 };
 
-typedef struct server {
-	int fd;
-	int port;
-	stx nick;
-	stx realname;
-	stx host;
-	struct list node;
-} server;
+struct irclogin {
+	int sockfd;
+	const char *username;
+	const char *realname;
+	const char *host;
+	const char *port;
+};
 
-typedef struct client {
-	int fd;
-	socklen_t addrlen;
-	struct sockaddr_in addr;
+typedef struct channel {
+	int fdin;
+	int fdout;
+	char *name;
 	struct list node;
-} client;
+} channel;
 
 static void
 logtime(FILE *fp)
@@ -126,7 +129,7 @@ daemonize(int nochdir, int noclose)
 		chdir("/");
 	}
 
-	// Fork once more to ensure no TTY can be reaquired.
+	// Fork once more to ensure no TTY can be required.
 	if (0 > daemonize_fork())
 		return -1;
 
@@ -145,112 +148,93 @@ daemonize(int nochdir, int noclose)
 	return 0;
 }
 
-static void
-run(const char *port)
+/**
+ * Recursively make directories given a fullpath.
+ */
+int
+mkdirtree(const char *path)
 {
-	int sockfd = 0;
-	server irc;
-	client cli;
-	stx buf;
+	char tmp[PATH_MAX];
+	size_t len;
 
-	if (0 > yorha_tcpopen(&sockfd, "localhost", port, bind))
-		LOGFATAL("Failed to bind to port %s.\n", port);
-
-	if (0 > listen(sockfd, 4))
-		LOGFATAL("Failed to listen on port %s.\n", port);
-
-	LOGINFO("Successfully initialized.\n");
-
-	// Each list has a sentinal node.
-	list_init(&irc.node);
-	list_init(&cli.node);
-	stxalloc(&buf, MSG_MAX);
-
-	while (sockfd) {
-		struct list *lp;
-		int maxfd;
-		fd_set rd;
-		struct timeval tv;
-		int rv;
-
-		FD_ZERO(&rd);
-		FD_SET(sockfd, &rd);
-		tv.tv_sec = ping_timeout;
-		tv.tv_usec = 0;
-		maxfd = sockfd;
-
-		for (lp=cli.node.next; lp!=&cli.node; lp=lp->next) {
-			client *tmp = list_get(lp, client, node);
-			if (tmp->fd > maxfd)
-				maxfd = tmp->fd;
-			FD_SET(tmp->fd, &rd);
+	snprintf(tmp, sizeof(tmp), "%s", path);
+	len = strlen(tmp);
+	if('/' == tmp[len - 1])
+		tmp[len - 1] = 0;
+	for(char *p=tmp; *p; ++p)
+		if('/' == *p) {
+			*p = 0;
+			mkdir(tmp, S_IRWXU);
+			*p = '/';
 		}
+	mkdir(tmp, S_IRWXU);
+	return 0;
+}
 
-		for (lp=cli.node.next; lp!=&cli.node; lp=lp->next) {
-			server *tmp = list_get(lp, server, node);
-			if (tmp->fd > maxfd)
-				maxfd = tmp->fd;
-			FD_SET(tmp->fd, &rd);
-		}
+/**
+ * Create a new channel.
+ */
+channel *
+channel_new(const char *name)
+{
+	char path[PATH_MAX];
+	channel *tmp;
+	if (!(tmp = malloc(sizeof(*tmp))) || (0 > mkdirtree(name)))
+		goto except;
 
-		rv = select(maxfd + 1, &rd, 0, 0, &tv);
+	if (!(tmp->name = malloc(strlen(name))))
+		goto cleanup_tmp;
 
-		if (rv < 0) {
-		} else if (rv == 0) {
-		}
+	strcpy(tmp->name, name);
 
-		// Check for any new client connections.
-		if (FD_ISSET(sockfd, &rd)) {
-			client *tmp;
-			tmp = malloc(sizeof(*tmp));
-			if (!tmp) {
-				LOGERROR("Unable to allocate memory for new client connection\n.");
-			} else {
-				tmp->fd = accept(tmp->fd,
-					(struct sockaddr *)&tmp->addr,
-					&tmp->addrlen);
-				list_append(&cli.node, &tmp->node);
-			}
-		}
-
-		// Check for new client messages
-		for (lp=cli.node.next; lp!=&cli.node; lp=lp->next) {
-			client *tmp = list_get(lp, client, node);
-			if (FD_ISSET(tmp->fd, &rd)) {
-				if (0 > yorha_readline(buf.mem, &buf.len,
-							buf.size,
-							tmp->fd)) {
-					//TODO(todd): error
-				} else {
-					//TODO(todd): do something
-				}
-			}
-		}
-
-		// Check for new server messages
-		for (lp=cli.node.next; lp!=&cli.node; lp=lp->next) {
-			server *tmp = list_get(lp, server, node);
-			if (FD_ISSET(tmp->fd, &rd)) {
-				if (0 > yorha_readline(buf.mem, &buf.len,
-							buf.size,
-							tmp->fd)) {
-					//TODO(todd): error
-					LOGERROR("Unable to read message from server\n");
-				} else {
-					//TODO(todd): do something
-				}
-			}
-		}
-	}
+	snprintf(path, 256, "%s/%s", name, "in");
+	remove(path);
+	if (0 > (tmp->fdin = mkfifo(path, S_IRWXU)))
+		goto cleanup_tmp_name;
 	
-	stxdel(&buf);
+	snprintf(path, 256, "%s/%s", name, "out");
+	if (0 > (tmp->fdout = open(path, O_APPEND | O_CREAT)))
+		goto cleanup_tmp_fdin;
+
+	return tmp;
+
+cleanup_tmp_fdin:
+	close(tmp->fdin);
+cleanup_tmp_name:
+	free(tmp->name);
+cleanup_tmp:
+	free(tmp);
+except:
+	LOGERROR("Unable to allocate memory for new channel.\n");
+	return NULL;
+}
+
+void
+irc_login(int sockfd, const char *username, const char *realname)
+{
+}
+
+void
+channel_log(channel *cp, const char *msg)
+{
+	//TODO(todd): stat the file here, then either remake it if it was
+	// closed or use it if still open.
 }
 
 int
 main(int argc, char **argv) 
 {
 	int flags = 0;
-	const char *port = NULL;
+	const char *prefix = default_prefix;
+	channel *chan;
+	stx buf;
+	struct irclogin ircn = {
+		.sockfd = 0,
+		.host = NULL,
+		.port = default_port,
+		.username = default_username,
+		.realname = default_realname
+	};
 
 	for (int i = 1; i < argc; ++i) {
 		if (argv[i][0] == '-') {
@@ -263,27 +247,106 @@ main(int argc, char **argv)
 				break;
 			case 'p':
 				++i;
-				port = argv[i];
+				ircn.port = argv[i];
 				break;
 			case 'D': 
 				flags |= FLAG_DAEMON; 
+				break;
+			case 'o':
+				++i;
+				prefix = argv[i];
 				break;
 			default: 
 				usage();
 			}
 		} else {
-			usage();
+			ircn.host = argv[i];
 		}
 	}
+
+	if (!ircn.host)
+		LOGFATAL("No remote host provided.\n");
 	
-	if (!port)
-		port = default_port;
-
-	// Daemonize last so that any argument errors can be printed to caller.
+	// Setup the daemon.
+	if (0 > chdir(prefix))
+		LOGFATAL("Unable to chdir to %s\n.", prefix);
 	if (FLAG_DAEMON == (flags & FLAG_DAEMON))
-		daemonize(0, 0);
+		daemonize(1, 0);
 
-	run(port);
+	// Open the irc-server connection.
+	if (0 > yorha_tcpopen(&ircn.sockfd, ircn.host, ircn.port, connect))
+		LOGFATAL("Failed to connect to host \"%s\" on port \"%s\".\n",
+				ircn.host, ircn.port);
+
+	LOGINFO("Successfully initialized.\n");
+
+	// Initialize the message buffer.
+	stxalloc(&buf, MSG_MAX + 1);
+
+	chan = channel_new(ircn.host);
+	list_init(&chan->node);
+
+	irc_login(ircn.sockfd, ircn.username, ircn.realname);
+
+	while (ircn.sockfd) {
+		struct list *lp;
+		int maxfd;
+		fd_set rd;
+		struct timeval tv;
+		int rv;
+
+		FD_ZERO(&rd);
+		FD_SET(ircn.sockfd, &rd);
+		tv.tv_sec = ping_timeout;
+		tv.tv_usec = 0;
+		maxfd = ircn.sockfd;
+
+		// Add all file descriptors back to the ready list.
+		lp = &chan->node;
+		do {
+			channel *tmp = list_get(lp, channel, node);
+			if (tmp->fdin > maxfd)
+				maxfd = tmp->fdin;
+			FD_SET(tmp->fdin, &rd);
+			lp = lp->next;
+		} while (lp != &chan->node);
+
+		rv = select(maxfd + 1, &rd, 0, 0, &tv);
+
+		if (rv < 0) {
+		} else if (rv == 0) {
+		}
+
+		// Remote host has new messages.
+		if (FD_ISSET(ircn.sockfd, &rd)) {
+			if (0 > yorha_readline(buf.mem, &buf.len,
+						buf.size - 1,
+						ircn.sockfd)) {
+				//TODO error;
+			} else {
+				buf.mem[buf.len] = '\0';
+				LOGINFO("%s", buf.mem);
+				//TODO(todd): Handle IRC server messages.
+			}
+		}
+
+		// Find a channel that has new messages.
+		lp = &chan->node;
+		do {
+			channel *tmp = list_get(lp, channel, node);
+			if (FD_ISSET(tmp->fdin, &rd)) {
+				if (0 > yorha_readline(buf.mem, &buf.len,
+							buf.size - 1,
+							tmp->fdin)) {
+				} else {
+					//TODO(todd): do something here.
+				}
+			}
+			lp = lp->next;
+		} while (lp != &chan->node);
+	}
+	
+	stxdel(&buf);
 
 	return 0;
 }

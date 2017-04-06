@@ -12,6 +12,73 @@
 #define MSG_MAX 512
 
 /**
+ * All RFC mandated irc user commands. The shorthand for these commands should
+ * be sent as UPPERCASE.
+ */
+enum {
+	IRC_ADMIN,
+	IRC_AWAY,
+	IRC_CHAT,
+	IRC_CNOTICE,
+	IRC_CONNECT,
+	IRC_CPRIVMSG,
+	IRC_DIE,
+	IRC_ENCAP,
+	IRC_ERROR,
+	IRC_HELP,
+	IRC_IGNORE,
+	IRC_INFO,
+	IRC_INVITE,
+	IRC_ISON,
+	IRC_JOIN,
+	IRC_KICK,
+	IRC_KILL,
+	IRC_KNOCK,
+	IRC_LINKS,
+	IRC_LIST,
+	IRC_LUSERS,
+	IRC_ME,
+	IRC_MODE,
+	IRC_MOTD,
+	IRC_MSG,
+	IRC_NAMES,
+	IRC_NAMESX,
+	IRC_NICK,
+	IRC_NOTICE,
+	IRC_OPER,
+	IRC_PART,
+	IRC_PING,
+	IRC_PONG,
+	IRC_PRIVMSG,
+	IRC_QUIT,
+	IRC_REHASH,
+	IRC_RESTART,
+	IRC_RULES,
+	IRC_SERVER,
+	IRC_SERVICE,
+	IRC_SERVLIST,
+	IRC_SETNAME,
+	IRC_SILENCE,
+	IRC_SQUERY,
+	IRC_SQUIT,
+	IRC_STATS,
+	IRC_SUMMON,
+	IRC_TIME,
+	IRC_TOPIC,
+	IRC_TRACE,
+	IRC_UHNAMES,
+	IRC_USERHOST,
+	IRC_USERIP,
+	IRC_USERS,
+	IRC_VERSION,
+	IRC_WALLOPS,
+	IRC_WATCH,
+	IRC_WHO,
+	IRC_WHOIS,
+	IRC_WHOWAS,
+};
+
+/**
  * Establish a new tcp connection as a server or client.
  *
  * The last argument of this function should be either bind() or connect(). If

@@ -10,8 +10,8 @@
  * Retrieve a pointer to the container of the list.
  *
  * Since this list is meant to be embedded into other structs, this
- * is how you "retrieve" that headent from the list. This is done by
- * calculating the offset of the pointer to the headent relative to the
+ * is how you "retrieve" that entry from the list. This is done by
+ * calculating the offset of the pointer to the entry relative to the
  * list struct. This must be implemented as a macro due to requiring to
  * know the name of the member of the containing struct.
  */
@@ -24,7 +24,7 @@ struct list {
 };
 
 /**
- * Intialize a list headent.
+ * Intialize a list entry.
  *
  * Initializes a list head by setting its next and prev pointers point to
  * itself. A circular list is created this way.
@@ -32,44 +32,30 @@ struct list {
 void list_init(struct list *head);
 
 /**
- * Get the next headent in the list.
- *
- * Updates a pointer to a list to point to the next headent in the list.
- */
-struct list *list_next(struct list *head);
-
-/**
- * Get the previous headent in the list.
- *
- * Updates a pointer to a list to point to the previous headent in the list.
- */
-struct list *list_prev(struct list *head);
-
-/**
- * Prepend a list headent to a list headent.
+ * Prepend a list entry to a list entry.
  */
 void list_prepend(struct list *head, struct list *new);
 
 /**
- * Append a list headent to a list headent.
+ * Append a list entry to a list entry.
  */
 void list_append(struct list *head, struct list *new);
 
 /**
- * Remove an headent from a list.
+ * Remove an entry from a list.
  *
- * Remove an headent from the list it belongs to by changing the pointers
- * of the headents adjacent to it, then making it point to itself.
+ * Remove an entry from the list it belongs to by changing the pointers
+ * of the entrys adjacent to it, then making it point to itself.
  */
 void list_rm(struct list *head);
 void list_rm_init(struct list *head);
 
 /**
- * Replace an headent with another headent.
+ * Replace an entry with another entry.
  *
- * Replace an headent with another headent by changing the pointers
- * of the headents adjacent to it to point towards the new headent. The new
- * headent will then point to the adjacent headents. Finally the headent that
+ * Replace an entry with another entry by changing the pointers
+ * of the entrys adjacent to it to point towards the new entry. The new
+ * entry will then point to the adjacent entrys. Finally the entry that
  * was replaced will point to itself.
  */
 void list_replace(struct list *old, struct list *new);
