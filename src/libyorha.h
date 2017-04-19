@@ -11,6 +11,10 @@
 #define REALNAME_MAX 32
 #define MSG_MAX 512
 
+// Generic for-each loop for contiguous blocks of memory.
+#define YORHA_FOR_EACH(type, p, start, n) \
+	for (type p = (start); (p - (start)) < (n); ++p)
+
 /**
  * All RFC mandated irc user commands. The shorthand for these commands should
  * be sent as UPPERCASE.
