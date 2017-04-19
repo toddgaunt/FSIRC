@@ -15,12 +15,18 @@
  * list struct. This must be implemented as a macro due to requiring to
  * know the name of the member of the containing struct.
  */
-#define list_get(ptr, type, member) \
-    ((type *)((int8_t *)(ptr) - offsetof(type, member)))
+#define LIST_GET(ptr, type, member) \
+	((type *)((int8_t *)(ptr) - offsetof(type, member)))
+
+#define LIST_FOR_EACH(lp, head) \
+	for (struct list *lp = (head)->next; lp != (head); lp = lp->next)
+
+#define LIST_FOR_EACH_REV(lp, head) \
+	for (struct list *lp = (head)->prev; lp != (head); lp = lp->prev)
 
 struct list {
-    struct list *next;
-    struct list *prev;
+	struct list *next;
+	struct list *prev;
 };
 
 /**
