@@ -62,18 +62,10 @@ enum {
 	FLAG_DAEMON = 1 << 0,
 };
 
-struct irclogin {
-	int sockfd;
-	const char *username;
-	const char *realname;
-	const char *host;
-	const char *port;
-};
-
 typedef struct channel {
 	int fdin;
 	int fdout;
-	char *name;
+	stx path;
 	struct list node;
 } channel;
 
@@ -87,7 +79,6 @@ logtime(FILE *fp)
 	t = time(NULL);
 	tm = localtime(&t);
 	strftime(date, sizeof(date), "%m %d %T", tm);
-	fprintf(fp, date);
 }
 
 static void
@@ -97,121 +88,111 @@ usage()
 	exit(EXIT_FAILURE);
 }
 
-static int
-daemonize_fork()
-{
-	int pid = fork();
-
-	if (0 > pid)
-		return -1;
-
-	if (0 < pid)
-		exit(EXIT_SUCCESS);
-
-	return 0;
-}
-
-/**
- * Daemonize a process. If nochdir is 1, the process won't switch to '/'.
- * If noclose is 1, standard streams won't be redirected to /dev/null.
- */
-static int
-daemonize(int nochdir, int noclose) 
-{
-	// Fork once to go into the background.
-	if (0 > daemonize_fork())
-		return -1;
-
-	if (0 > setsid())
-		return -1;
-
-	if (!nochdir) {
-		chdir("/");
-	}
-
-	// Fork once more to ensure no TTY can be required.
-	if (0 > daemonize_fork())
-		return -1;
-
-	if (!noclose) {
-		int fd;
-		if (!(fd = open(PATH_NULL, O_RDWR)))
-			return -1;
-		dup2(fd, STDIN_FILENO);
-		dup2(fd, STDOUT_FILENO);
-		dup2(fd, STDERR_FILENO);
-		// Only close the fd if it isn't one of the std streams.
-		if (fd > 2)
-			close(fd);
-	}
-
-	return 0;
-}
-
 /**
  * Recursively make directories given a fullpath.
  */
 int
-mkdirtree(const char *path)
+mkdirtree(const char *path, size_t len)
 {
-	char tmp[PATH_MAX];
-	size_t len;
+	char tmp[len];
+	snprintf(tmp, len, "%s", path);
 
-	snprintf(tmp, sizeof(tmp), "%s", path);
-	len = strlen(tmp);
 	if('/' == tmp[len - 1])
-		tmp[len - 1] = 0;
-	for(char *p=tmp; *p; ++p)
-		if('/' == *p) {
-			*p = 0;
+		tmp[len - 1] = '\0';
+
+	for (size_t i=0; i < len; ++i) {
+		if('/' == tmp[i]) {
+			tmp[i] = 0;
 			mkdir(tmp, S_IRWXU);
-			*p = '/';
+			tmp[i] = '/';
 		}
+	}
+
 	mkdir(tmp, S_IRWXU);
+
 	return 0;
+}
+
+/**
+ * Open up the "in" and "out" files for the channel.
+ */
+int
+channel_ensure_files_open(channel *cp)
+{
+	char tmp[cp->path.len + 5];
+	struct stat st;
+
+	// Check to see if the file is linked at all.
+	fstat(cp->fdin, &st);
+	if (!st.st_nlink) {
+		LOGINFO("Creating in-file: \"%s\".\n", tmp);
+		snprintf(tmp, cp->path.len, "%s/in", cp->path.mem);
+		if (0 > (cp->fdin = mkfifo(tmp, S_IRWXU)))
+			if (EEXIST != errno)
+				goto except;
+	} 
+
+	// Check to see if the file is linked at all.
+	fstat(cp->fdin, &st);
+	if (!st.st_nlink) {
+		LOGINFO("Creating out-file: \"%s\".\n", tmp);
+		snprintf(tmp, cp->path.len, "%s/out", cp->path.mem);
+		if (0 > (cp->fdout = open(tmp, O_APPEND | O_CREAT)))
+			goto except;
+	}
+	
+	return 0;
+
+except:
+	LOGERROR("Unable open file for channel \"%s\".\n", tmp);
+	return -1;
 }
 
 /**
  * Create a new channel.
  */
 channel *
-channel_new(const char *name)
+channel_new(const char *prefix, const char *name)
 {
-	char path[PATH_MAX];
+	stx path;
 	channel *tmp;
-	if (!(tmp = malloc(sizeof(*tmp))) || (0 > mkdirtree(name)))
+
+	if (!stxalloc(&path, strlen(prefix) + strlen(name)))
 		goto except;
 
-	if (!(tmp->name = malloc(strlen(name))))
+	stxvapp_str(&path, prefix, "/", name, NULL);
+
+	if (0 > mkdirtree(path.mem, path.len))
+		goto cleanup_path;
+
+	if (!(tmp = malloc(sizeof(*tmp))))
+		goto cleanup_path;
+
+	tmp->path = path;
+	tmp->fdin = -1;
+	tmp->fdout = -1;
+
+	if (0 < channel_ensure_files_open(tmp))
 		goto cleanup_tmp;
-
-	strcpy(tmp->name, name);
-
-	snprintf(path, 256, "%s/%s", name, "in");
-	remove(path);
-	if (0 > (tmp->fdin = mkfifo(path, S_IRWXU)))
-		goto cleanup_tmp_name;
-	
-	snprintf(path, 256, "%s/%s", name, "out");
-	if (0 > (tmp->fdout = open(path, O_APPEND | O_CREAT)))
-		goto cleanup_tmp_fdin;
 
 	return tmp;
 
-cleanup_tmp_fdin:
-	close(tmp->fdin);
-cleanup_tmp_name:
-	free(tmp->name);
 cleanup_tmp:
 	free(tmp);
+cleanup_path:
+	stxdel(&path);
+	LOGERROR("Allocation for channel failed.\n");
 except:
-	LOGERROR("Unable to allocate memory for new channel.\n");
+	LOGERROR("Unable to create new channel (%s).\n", name);
 	return NULL;
 }
 
 void
-irc_login(int sockfd, const char *username, const char *realname)
+channel_del(channel *cp)
 {
+	close(cp->fdout);
+	close(cp->fdin);
+	free(cp);
 }
 
 void
@@ -221,24 +202,39 @@ channel_log(channel *cp, const char *msg)
 	// closed or use it if still open.
 }
 
+
+void
+fmt_login_msg(stx *buf,
+		const char *host,
+		const char *nick,
+		const char *fullname)
+{
+	buf->len = snprintf(buf->mem, buf->size,
+			"NICK %s\r\nUSER %s localhost %s :%s\r\n",
+			nick, nick, host, fullname);
+}
+
+
 int
 main(int argc, char **argv) 
 {
 	int flags = 0;
-	const char *prefix = default_prefix;
-	channel *chan;
+	struct list chan_head;
 	stx buf;
-	struct irclogin ircn = {
-		.sockfd = 0,
-		.host = NULL,
-		.port = default_port,
-		.username = default_username,
-		.realname = default_realname
-	};
 
-	for (int i = 1; i < argc; ++i) {
-		if (argv[i][0] == '-') {
-			switch (argv[i][1]) {
+	// Path to in/out files
+	const char *prefix = default_prefix;
+
+	// Irc server connection info.
+	int sockfd = 0;
+	const char *host = NULL;
+	const char *port = default_port;
+	const char *nickname = default_nickname;
+	const char *fullname = default_fullname;
+
+	YORHA_FOR_EACH (char **, ap, argv + 1, argc) {
+		if (*ap[0] == '-') {
+			switch (*ap[1]) {
 			case 'h': 
 				usage(); 
 				break;
@@ -246,70 +242,70 @@ main(int argc, char **argv)
 				//version();
 				break;
 			case 'p':
-				++i;
-				ircn.port = argv[i];
+				++*ap;
+				if (!*ap)
+					usage();
+				port = *ap;
 				break;
 			case 'D': 
 				flags |= FLAG_DAEMON; 
 				break;
 			case 'o':
-				++i;
-				prefix = argv[i];
+				++*ap;
+				if (!*ap)
+					usage();
+				prefix = *ap;
 				break;
 			default: 
 				usage();
 			}
 		} else {
-			ircn.host = argv[i];
+			host = *ap;
 		}
 	}
 
-	if (!ircn.host)
+	if (!host)
 		LOGFATAL("No remote host provided.\n");
-	
-	// Setup the daemon.
-	if (0 > chdir(prefix))
-		LOGFATAL("Unable to chdir to %s\n.", prefix);
+
 	if (FLAG_DAEMON == (flags & FLAG_DAEMON))
-		daemonize(1, 0);
+		yorha_daemonize();
 
 	// Open the irc-server connection.
-	if (0 > yorha_tcpopen(&ircn.sockfd, ircn.host, ircn.port, connect))
+	if (0 > yorha_tcpopen(&sockfd, host, port, connect))
 		LOGFATAL("Failed to connect to host \"%s\" on port \"%s\".\n",
-				ircn.host, ircn.port);
+				host, port);
 
 	LOGINFO("Successfully initialized.\n");
 
 	// Initialize the message buffer.
 	stxalloc(&buf, MSG_MAX + 1);
 
-	chan = channel_new(ircn.host);
-	list_init(&chan->node);
+	// Initialize the list and add the first channel.
+	list_init(&chan_head);
+	list_append(&chan_head, &channel_new(prefix, host)->node);
 
-	irc_login(ircn.sockfd, ircn.username, ircn.realname);
+	fmt_login_msg(&buf, host, nickname, fullname);
+	yorha_send_msg(sockfd, buf.mem, buf.len);
 
-	while (ircn.sockfd) {
-		struct list *lp;
+	while (sockfd) {
 		int maxfd;
 		fd_set rd;
 		struct timeval tv;
 		int rv;
 
 		FD_ZERO(&rd);
-		FD_SET(ircn.sockfd, &rd);
+		FD_SET(sockfd, &rd);
 		tv.tv_sec = ping_timeout;
 		tv.tv_usec = 0;
-		maxfd = ircn.sockfd;
+		maxfd = sockfd;
 
 		// Add all file descriptors back to the ready list.
-		lp = &chan->node;
-		do {
-			channel *tmp = list_get(lp, channel, node);
+		LIST_FOR_EACH (lp, &chan_head) {
+			channel *tmp = LIST_GET(lp, channel, node);
 			if (tmp->fdin > maxfd)
 				maxfd = tmp->fdin;
 			FD_SET(tmp->fdin, &rd);
-			lp = lp->next;
-		} while (lp != &chan->node);
+		}
 
 		rv = select(maxfd + 1, &rd, 0, 0, &tv);
 
@@ -318,10 +314,10 @@ main(int argc, char **argv)
 		}
 
 		// Remote host has new messages.
-		if (FD_ISSET(ircn.sockfd, &rd)) {
+		if (FD_ISSET(sockfd, &rd)) {
 			if (0 > yorha_readline(buf.mem, &buf.len,
 						buf.size - 1,
-						ircn.sockfd)) {
+						sockfd)) {
 				//TODO error;
 			} else {
 				buf.mem[buf.len] = '\0';
@@ -330,20 +326,18 @@ main(int argc, char **argv)
 			}
 		}
 
-		// Find a channel that has new messages.
-		lp = &chan->node;
-		do {
-			channel *tmp = list_get(lp, channel, node);
+		LIST_FOR_EACH (lp, &chan_head) {
+			channel *tmp = LIST_GET(lp, channel, node);
 			if (FD_ISSET(tmp->fdin, &rd)) {
 				if (0 > yorha_readline(buf.mem, &buf.len,
 							buf.size - 1,
 							tmp->fdin)) {
+					//TODO error;
 				} else {
 					//TODO(todd): do something here.
 				}
 			}
-			lp = lp->next;
-		} while (lp != &chan->node);
+		}
 	}
 	
 	stxdel(&buf);

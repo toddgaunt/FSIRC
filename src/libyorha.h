@@ -108,3 +108,14 @@ yorha_tcpopen(int *sockfd, const char *host, const char *port,
  */
 int
 yorha_readline(char *buf, size_t *len, size_t maxrecv, int fd);
+
+/**
+ */
+int
+yorha_send_msg(int sockfd, const char *buf, size_t len);
+
+/**
+ * Daemonize a process.
+ */
+int
+yorha_daemonize();
