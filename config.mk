@@ -12,7 +12,7 @@ VARPREFIX = ${PREFIX}/var
 LDFLAGS = -lstx -larg
 
 # Compiler configuration.
-CFLAGS = -std=gnu99 -O2 -Wall -Wextra
+CFLAGS = -g -std=gnu99 -O0 -Wall -Wextra
 
 # Compiler
 CC = cc

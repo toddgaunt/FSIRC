@@ -27,15 +27,14 @@ options: config.mk
 
 ${BUILD_DIR}/%.o: ${SRC_DIR}/%.c
 	@mkdir -p $(dir $@)
-	@printf "CC $@ ... "
-	@${CC} -c -o $@ $< ${CFLAGS} ${LDFLAGS} ${MFLAGS}
-	@printf "done.\n"
+	@printf "CC $@\n"
+	@${CC} ${CFLAGS} ${MFLAGS} -c -o $@ $< ${LDFLAGS}
 
 ${OBJ}: config.mk
 
 ${TARGET}: ${OBJ}
-	@printf "CC $<\n"
-	@${CC} -o $@ ${OBJ} ${CFLAGS} ${LDFLAGS} ${MFLAGS}
+	@printf "CC $@\n"
+	@${CC} ${CFLAGS} ${MFLAGS} -o $@ ${OBJ} ${LDFLAGS}
 
 clean:
 	@printf "Cleaning ... "
