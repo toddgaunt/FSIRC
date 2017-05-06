@@ -19,14 +19,9 @@
 #include <time.h>
 #include <unistd.h>
 #include <libstx.h>
-#include "libarg.h"
+#include <libarg.h>
 
 #include "yorha_config.h"
-#include "list.h"
-
-#ifndef PATH_MAX
-#define PATH_MAX
-#endif
 
 #ifndef PRGM_NAME
 #define PRGM_NAME "null"
@@ -44,12 +39,9 @@
 #define PATH_NULL "/dev/null"
 #endif
 
-#ifndef HOST_NAME_MAX
-#define HOST_NAME_MAX 255
-#endif
+#define INFILENAME "in"
+#define OUTFILENAME "out"
 
-#define NICK_MAX 32
-#define REALNAME_MAX 32
 #define MSG_MAX 512
 
 #define LOGINFO(...)\
@@ -65,12 +57,20 @@
 	fprintf(stderr, " "PRGM_NAME": fatal: "__VA_ARGS__);\
 	exit(EXIT_FAILURE);}
 
-typedef struct channel {
-	int fd;
-	stx path;
-	stx name;
-	struct list node;
-} channel;
+struct channels {
+	size_t size;
+	size_t len;
+	int *fds;
+	stx *paths;
+	spx *names;
+};
+
+static void
+version()
+{
+	fprintf(stderr, PRGM_NAME" version "VERSION"\n");
+	exit(-1);
+}
 
 static void
 logtime(FILE *fp)
@@ -100,36 +100,37 @@ daemonize_fork()
 }
 
 /**
- * Daemonize a process. If nochdir is 1, the process won't switch to '/'.
- * If noclose is 1, standard streams won't be redirected to /dev/null.
+ * Daemonize a process by forking it twice, redirecting standard streams
+ * to PATH_NULL, and changing directory to "/".
  */
-static int
+static void
 daemonize()
 {
 	// Fork once to go into the background.
 	if (0 > daemonize_fork())
-		return -1;
+		exit(-1);
 
 	if (0 > setsid())
-		return -1;
+		exit(-1);
 
 	// Fork once more to ensure no TTY can be required.
 	if (0 > daemonize_fork())
-		return -1;
+		exit(-1);
 
 	int fd;
-	if (!(fd = open("/dev/null", O_RDWR)))
-		return -1;
+	if (!(fd = open(PATH_NULL, O_RDWR)))
+		exit(-1);
+
+	// Close standard streams.
 	dup2(fd, STDIN_FILENO);
 	dup2(fd, STDOUT_FILENO);
 	dup2(fd, STDERR_FILENO);
+
 	// Only close the fd if it isn't one of the std streams.
 	if (fd > 2)
 		close(fd);
 
 	chdir("/");
-
-	return 0;
 }
 
 int
@@ -200,80 +201,142 @@ mkdirtree(const stx *path)
 	return 0;
 }
 
-int
-channel_open_fifo(channel *cp)
+/**
+ * TODO
+ */
+static int
+channel_open_fifo(const spx path)
 {
-	char tmp[cp->path.len + 4];
-	memcpy(tmp, cp->path.mem, cp->path.len);
-	strcpy(tmp + cp->path.len, "/in");
+	int fd = -1;
+	char tmp[path.len + sizeof("/"INFILENAME)];
 
-	if (0 > (cp->fd = mkfifo(tmp, S_IRWXU)))
+	memcpy(tmp, path.mem, path.len);
+	strcpy(tmp + path.len, "/"INFILENAME);
+
+	if (0 > (fd = mkfifo(tmp, S_IRWXU))) {
 		if (EEXIST == errno) {
 			remove(tmp);
-			if (0 > (cp->fd = mkfifo(tmp, S_IRWXU)))
-					return -1;
+			if (0 > (fd = mkfifo(tmp, S_IRWXU))) {
+				return -1;
+			}
 		} else {
 			return -1;
 		}
+	}
 
 	LOGINFO("Fifo file opened (%s)\n.", tmp);
+	return fd;
+}
+
+/**
+ * Allocate and initialize memory for a struct channels.
+ */
+int
+channels_init(struct channels *ch, size_t init_size)
+{
+	if (!(ch->fds = calloc(init_size, sizeof(*ch->fds))))
+		goto except;
+
+	if (!(ch->paths = calloc(init_size, sizeof(*ch->paths))))
+		goto cleanup_ch_fds;
+
+	if (!(ch->names = calloc(init_size, sizeof(*ch->names))))
+		goto cleanup_ch_paths;
+
+	ch->size = init_size;
+	ch->len = 0;
+	return 0;
+
+cleanup_ch_paths:
+	free(ch->paths);
+cleanup_ch_fds:
+	free(ch->fds);
+except:
+	return -1;
+}
+
+/**
+ * Add a channel to a struct channels, and resize the lists if necessary.
+ */
+int
+channels_add(struct channels *ch, const spx path, const spx name)
+{
+	if (ch->len >= ch->size) {
+		// Find the nearest power of two for reallocation.
+		size_t next_size = 2;
+		if (ch->size >= SIZE_MAX / 2) {
+			next_size = SIZE_MAX;
+		} else {
+			while (next_size < ch->size)
+				next_size <<= 1;
+		}
+
+		if (!realloc(ch->fds, sizeof(*ch->fds) * next_size))
+			return -1;
+
+		if (!realloc(ch->paths, sizeof(*ch->paths) * next_size))
+			return -1;
+
+		if (!realloc(ch->names, sizeof(*ch->names) * next_size))
+			return -1;
+
+		ch->size = next_size;
+	}
+
+	size_t i;
+	stx *sp = ch->paths + ch->len;
+
+	if (0 > stxensuresize(sp, path.len + name.len))
+		return -1;
+
+	stxcpy_spx(sp, path);
+	stxapp_spx(sp, name);
+
+	for (i=sp->len - 1; i>0; --i)
+		if ('/' == sp->mem[i])
+			break;
+
+	// The name is a slice of the path.
+	ch->names[ch->len] = stxslice(stxref(sp), i, sp->len);
+
+	if (0 > (ch->fds[ch->len] = channel_open_fifo(stxref(sp))))
+		return -1;
+
+	++ch->len;
+
 	return 0;
 }
 
 /**
- * Create a new channel.
+ * Remove a channel from a struct channels.
  */
-channel *
-channel_new(const stx *path)
+static void
+channels_remove(struct channels *ch, size_t index)
 {
-	size_t i;
-	channel *tmp;
+	// Close any open OS resources.
+	close(ch->fds[index]);
 
-	if (0 > mkdirtree(path))
-		goto except;
+	// The last channel in the list replaces the channel to be removed.
+	ch->fds[index] = ch->fds[ch->len - 1];
+	ch->paths[index] = ch->paths[ch->len - 1];
+	ch->names[index] = ch->names[ch->len - 1];
 
-	if (!(tmp = malloc(sizeof(*tmp)))) {
-		LOGERROR("Allocation for channel failed.\n");
-		goto except;
-	}
-
-	if (0 < stxalloc(&tmp->path, path->len)) {
-		LOGERROR("Allocation for channel path failed.\n");
-		goto cleanup_tmp;
-	}
-
-	stxcpy_stx(&tmp->path, path);
-	for (i=tmp->path.len - 1; i>0; --i) {
-		if ('/' == tmp->path.mem[i])
-			break;
-	}
-
-	stxslice(&tmp->name, &tmp->path, i, tmp->path.len);
-
-	if (0 < channel_open_fifo(tmp))
-		goto cleanup_tmp_path;
-
-	return tmp;
-
-cleanup_tmp_path:
-	stxdel(&tmp->path);
-cleanup_tmp:
-	free(tmp);
-except:
-	LOGERROR("Unable to create new channel (%s).\n", path->mem);
-	return NULL;
+	ch->len--;
 }
 
-void
-channel_del(channel *cp)
+/**
+ * Free all memory used by a struct channels.
+ */
+static void
+channels_del(struct channels *ch)
 {
-	close(cp->fd);
-	free(cp);
-}
+	// Close any open OS resources.
+	for (size_t i=0; i<ch->len; ++i)
+		close(ch->fds[i]);
 
-void
-channel_log(const char *path, const char *msg, size_t len)
-{
+	free(ch->fds);
+	free(ch->paths);
+	free(ch->names);
 }
 
 static int
@@ -327,6 +390,7 @@ proc_channel_cmd(int sockfd, const stx *name, stx *buf)
 		write(sockfd, "JOIN", 4);
 		//TODO;
 	case 'p': 
+		write(sockfd, "PART", 4);
 		//TODO;
 	case 'm':
 		//TODO;
@@ -337,92 +401,110 @@ proc_channel_cmd(int sockfd, const stx *name, stx *buf)
 	}
 }
 
+void
+assign_spx(struct spx *sp, const char *arg) {
+	sp->mem = arg;
+	sp->len = strlen(arg);
+}
+
 int
 main(int argc, char **argv) 
 {
-	struct list chan_head;
+	// Message buffer
 	stx buf;
 
-	// Path to in/out files
-	const char *prefix = default_prefix;
+	// Channel connection data.
+	struct channels ch;
+
+	// Path to runtime directory files
+	spx prefix = {
+		.mem = default_prefix,
+		.len = strlen(default_prefix),
+	};
 
 	// Irc server connection info.
 	int sockfd = 0;
-	const char *host = NULL;
-	const char *port = default_port;
-	const char *nickname = default_nickname;
-	const char *fullname = default_fullname;
 
-	struct args args = {0};
+	spx host = {0};
+
+	spx port = {
+		.mem = default_port,
+		.len = strlen(default_port)
+	};
+
+	spx nickname = {
+		.mem = default_nickname,
+		.len = strlen(default_nickname)
+	};
+
+	spx fullname = {
+		.mem = default_fullname,
+		.len = strlen(default_fullname)
+	};
 
 	struct arg_opt opts[] = {
 		{
-			.flag = 'p',
-			.name = "port",
-			.callback2 = arg_assign_ptr_once,
-			.callback_arg = &port,
-			.callback_default_str = default_port,
-			.help = "Specify the [p]ort of the remote irc server"
-		},
-		{
-			.flag = 'd',
-			.name = "daemon",
-			.callback0 = daemonize,
-			.help = "Allow the program to [d]aemonize"
-		},
-		{
-			.flag = 'r',
-			.name = "run",
-			.callback2 = arg_assign_ptr_once,
-			.callback_arg = &prefix,
-			.callback_default_str = default_prefix,
-			.help = "Specify the [r]untime directory to use"
-		},
-		{
 			.flag = 'h',
 			.name = "help",
-			.callback1 = arg_help,
-			.callback_arg = &args,
-			.help = "Show a help message and exit"
+			.param = opts,
+			.callback = arg_help,
+			.help = "Show this help message and exit"
 		},
 		{
 			.flag = 'v',
 			.name = "version",
+			.callback = version,
 			.help = "Show the program version and exit"
 		},
+		{
+			.flag = 'p',
+			.name = "port",
+			.arg = ARG_REQUIRED,
+			.param = &port,
+			.callback = assign_spx,
+			.help = "Specify the [p]ort of the remote irc server"
+		},
+		{
+			.flag = 'D',
+			.name = "daemonize",
+			.callback = daemonize,
+			.help = "Allow the program to [d]aemonize"
+		},
+		{
+			.flag = 'd',
+			.name = "directory",
+			.arg = ARG_REQUIRED,
+			.param = &prefix,
+			.callback = arg_assign_ptr,
+			.help = "Specify the runtime [d]irectory to use"
+		},
+		{0}
 	};
 
-	struct arg_req req = {
-		.name = "host",
-		.callback = arg_assign_ptr_once,
-		.callback_arg = &host,
-	};
+	argv = arg_parse(argv + 1, opts);
 
-	arg_add_opts(&args, opts, sizeof(opts)/sizeof(*opts));
-	arg_add_req(&args, &req);
+	if (!argv[0])
+		LOGFATAL("No host argument provided.\n");
 
-	if (0 > arg_parse(&args, argv + 1)) {
-		arg_usage(&args);
-		exit(-1);
-	}
+	host.mem = argv[0];
+	host.len = strlen(argv[0]);
 
 	// Open the irc-server connection.
-	if (0 > tcpopen(&sockfd, host, port, connect))
+	if (0 > tcpopen(&sockfd, host.mem, port.mem, connect))
 		LOGFATAL("Failed to connect to host \"%s\" on port \"%s\".\n",
-				host, port);
+				host.mem, port.mem);
 
 	LOGINFO("Successfully initialized.\n");
 
-	// Initialize the message buffer.
+	// Initialize the message buffer and login to the remote host.
 	stxalloc(&buf, MSG_MAX);
-
-	// Initialize the list and add the first channel.
-	stxvapp_str(&buf, prefix, "/", host, 0);
-	list_init(&chan_head);
-	list_append(&chan_head, &channel_new(&buf)->node);
-
-	fmt_login(&buf, host, nickname, fullname);
+	fmt_login(&buf, host.mem, nickname.mem, fullname.mem);
 	send_msg(sockfd, &buf);
+
+	// Initialize the channel list and add the remote host as the first
+	// channel.
+	channels_init(&ch, 2);
+	channels_add(&ch, prefix, host);
 
 	while (sockfd) {
 		int maxfd;
@@ -436,12 +518,11 @@ main(int argc, char **argv)
 		tv.tv_usec = 0;
 		maxfd = sockfd;
 
-		// Add all file descriptors back to the ready list.
-		LIST_FOR_EACH (lp, &chan_head) {
-			channel *tmp = LIST_GET(lp, channel, node);
-			if (tmp->fd > maxfd)
-				maxfd = tmp->fd;
-			FD_SET(tmp->fd, &rd);
+		for (size_t i=0; i<ch.len; ++i) {
+			if (ch.fds[i] > maxfd) {
+				maxfd = ch.fds[i];
+			}
+			FD_SET(ch.fds[i], &rd);
 		}
 
 		rv = select(maxfd + 1, &rd, 0, 0, &tv);
@@ -449,37 +530,37 @@ main(int argc, char **argv)
 		if (rv < 0) {
 			LOGFATAL("Error running select().\n");
 		} else if (rv == 0) {
+			//TODO(todd): handle timeout.
 		}
 
 		// Remote host has new messages.
 		if (FD_ISSET(sockfd, &rd)) {
 			if (0 > readline(&buf, sockfd)) {
-				LOGERROR("Unable to read from %s: ", host);
+				LOGERROR("Unable to read from %s: ", host.mem);
 				perror("");
-				exit(-1);
+				return EXIT_FAILURE;
 			} else {
 				fwrite(buf.mem, 1, buf.len, stdout);
 				//proc_irc_cmd(sockfd, host, &buf);
 			}
 		}
 
-		LIST_FOR_EACH (lp, &chan_head) {
-			channel *tmp = LIST_GET(lp, channel, node);
-			if (FD_ISSET(tmp->fd, &rd)) {
-				if (0 > readline(&buf, tmp->fd)) {
+		for (size_t i=0; i<ch.len; ++i) {
+			if (FD_ISSET(ch.fds[i], &rd)) {
+				if (0 > readline(&buf, ch.fds[i])) {
 					LOGERROR("Unable to read from (");
-					fwrite(tmp->path.mem, 1, tmp->path.len, stderr);
+					fwrite(ch.paths[i].mem, 1, ch.paths[i].len, stderr);
 					fprintf(stderr, "): ");
 					perror("");
-					exit(-1);
+					return EXIT_FAILURE;
 				} else {
-					printf("hi\n");
-					proc_channel_cmd(sockfd, &tmp->name, &buf);
+					//TODO(todd) Process client message.
 				}
 			}
 		}
 	}
-	
+
+	channels_del(&ch);
 	stxdel(&buf);
 
 	return 0;
