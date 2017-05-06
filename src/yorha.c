@@ -39,9 +39,6 @@
 #define PATH_NULL "/dev/null"
 #endif
 
-#define INFILENAME "in"
-#define OUTFILENAME "out"
-
 #define MSG_MAX 512
 
 #define LOGINFO(...)\
@@ -179,16 +176,16 @@ tcpopen(int *sockfd, const char *host, const char *port,
  * Recursively make directories given a fullpath.
  */
 int
-mkdirtree(const stx *path)
+mkdirpath(const spx path)
 {
-	char tmp[path->len + 1];
-	memcpy(tmp, path->mem, path->len);
-	tmp[path->len] = '\0';
+	char tmp[path.len + 1];
+	memcpy(tmp, path.mem, path.len);
+	tmp[path.len] = '\0';
 
-	if('/' == tmp[path->len - 1])
-		tmp[path->len - 1] = '\0';
+	if('/' == tmp[path.len - 1])
+		tmp[path.len - 1] = '\0';
 
-	for (size_t i=0; i < path->len; ++i) {
+	for (size_t i=0; i < path.len; ++i) {
 		if('/' == tmp[i]) {
 			tmp[i] = 0;
 			mkdir(tmp, S_IRWXU);
@@ -208,24 +205,28 @@ static int
 channel_open_fifo(const spx path)
 {
 	int fd = -1;
-	char tmp[path.len + sizeof("/"INFILENAME)];
+	char tmp[path.len + sizeof("/in")];
 
 	memcpy(tmp, path.mem, path.len);
-	strcpy(tmp + path.len, "/"INFILENAME);
+	strcpy(tmp + path.len, "/in");
 
 	if (0 > (fd = mkfifo(tmp, S_IRWXU))) {
 		if (EEXIST == errno) {
 			remove(tmp);
 			if (0 > (fd = mkfifo(tmp, S_IRWXU))) {
-				return -1;
+				goto except;
 			}
 		} else {
-			return -1;
+			goto except;
 		}
 	}
 
-	LOGINFO("Fifo file opened (%s)\n.", tmp);
+	LOGINFO("Input fifo created at \"%s\"\n successfully.", tmp);
 	return fd;
+
+except:
+	LOGERROR("Input fifo creation at \"%s\" failed.\n", tmp);
+	return -1;
 }
 
 /**
@@ -286,10 +287,14 @@ channels_add(struct channels *ch, const spx path, const spx name)
 	size_t i;
 	stx *sp = ch->paths + ch->len;
 
-	if (0 > stxensuresize(sp, path.len + name.len))
+	if (0 > stxensuresize(sp, path.len + name.len + 1)) {
+		LOGERROR("Allocation of path buffer for channel \"%.*s\" failed.\n",
+				(int)name.len, name.mem);
 		return -1;
+	}
 
 	stxcpy_spx(sp, path);
+	stxapp_mem(sp, "/", 1);
 	stxapp_spx(sp, name);
 
 	for (i=sp->len - 1; i>0; --i)
@@ -299,8 +304,16 @@ channels_add(struct channels *ch, const spx path, const spx name)
 	// The name is a slice of the path.
 	ch->names[ch->len] = stxslice(stxref(sp), i, sp->len);
 
-	if (0 > (ch->fds[ch->len] = channel_open_fifo(stxref(sp))))
+	if (0 > mkdirpath(stxref(sp))) {
+		LOGERROR("Directory creation for path \"%.*s\" failed.\n",
+				(int)sp->len, sp->mem);
 		return -1;
+	}
+
+
+	if (0 > (ch->fds[ch->len] = channel_open_fifo(stxref(sp)))) {
+		return -1;
+	}
 
 	++ch->len;
 
@@ -337,6 +350,11 @@ channels_del(struct channels *ch)
 	free(ch->fds);
 	free(ch->paths);
 	free(ch->names);
+}
+
+static void
+channels_log()
+{
 }
 
 static int
@@ -475,7 +493,7 @@ main(int argc, char **argv)
 			.name = "directory",
 			.arg = ARG_REQUIRED,
 			.param = &prefix,
-			.callback = arg_assign_ptr,
+			.callback = assign_spx,
 			.help = "Specify the runtime [d]irectory to use"
 		},
 		{0}
@@ -503,8 +521,12 @@ main(int argc, char **argv)
 
 	// Initialize the channel list and add the remote host as the first
 	// channel.
-	channels_init(&ch, 2);
-	channels_add(&ch, prefix, host);
+	if (0 > channels_init(&ch, 2))
+		LOGFATAL("Allocation of channels list failed.\n");
+
+	if (0 > channels_add(&ch, prefix, host))
+		LOGFATAL("Adding root channel \"%.*s\" failed.\n",
+				(int)host.len, host.mem);
 
 	while (sockfd) {
 		int maxfd;
@@ -540,6 +562,7 @@ main(int argc, char **argv)
 				perror("");
 				return EXIT_FAILURE;
 			} else {
+				channels_log();
 				fwrite(buf.mem, 1, buf.len, stdout);
 				//proc_irc_cmd(sockfd, host, &buf);
 			}
