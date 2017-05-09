@@ -58,8 +58,7 @@ struct channels {
 	size_t size;
 	size_t len;
 	int *fds;
-	stx *paths;
-	spx *names;
+	stx *names;
 };
 
 static void
@@ -69,6 +68,9 @@ version()
 	exit(-1);
 }
 
+/**
+ * Log the current time in month-day-year format to the given stream.
+ */
 static void
 logtime(FILE *fp)
 {
@@ -126,24 +128,36 @@ daemonize()
 	// Only close the fd if it isn't one of the std streams.
 	if (fd > 2)
 		close(fd);
-
-	chdir("/");
 }
 
+/**
+ * Open a tcp connection and save the file descriptor to "sockfd". The last
+ * parameter is either connect() or bind() funtion depending on the desired
+ * behavior.
+ */
 int
-tcpopen(int *sockfd, const char *host, const char *port, 
-		int (*open)(int, const struct sockaddr *, socklen_t))
+tcpopen(int *sockfd, const spx host, const spx port, 
+		int (*opensocket)(int, const struct sockaddr *, socklen_t))
 {
 	struct addrinfo hints;
 	struct addrinfo *res;
 	struct addrinfo *ptr;
 
 	memset(&hints, 0, sizeof(hints));
+	hints.ai_flags = AI_CANONNAME;
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
 
+	// Create null-terminated strings for legacy functions.
+	char tmphost[host.len + 1];
+	char tmpport[port.len + 1];
+	memcpy(tmphost, host.mem, host.len);
+	memcpy(tmpport, port.mem, port.len);
+	tmphost[host.len] = '\0';
+	tmpport[port.len] = '\0';
+
 	// Get the ip address of 'host'.
-	if (getaddrinfo(host, port, &hints, &res)) {
+	if (getaddrinfo(tmphost, tmpport, &hints, &res)) {
 		return -1;
 	}
 	
@@ -153,7 +167,7 @@ tcpopen(int *sockfd, const char *host, const char *port,
 				ptr->ai_protocol)))
 			continue;
 
-		if (0 > open(*sockfd, ptr->ai_addr, ptr->ai_addrlen))
+		if (0 > opensocket(*sockfd, ptr->ai_addr, ptr->ai_addrlen))
 			continue;
 
 		// Successful connection.
@@ -174,6 +188,8 @@ tcpopen(int *sockfd, const char *host, const char *port,
 
 /**
  * Recursively make directories given a fullpath.
+ *
+ * Return: 0 if directory path is fully created. -1 if mkdir fails.
  */
 int
 mkdirpath(const spx path)
@@ -185,21 +201,27 @@ mkdirpath(const spx path)
 	if('/' == tmp[path.len - 1])
 		tmp[path.len - 1] = '\0';
 
-	for (size_t i=0; i < path.len; ++i) {
+	for (size_t i=1; i < path.len; ++i) {
 		if('/' == tmp[i]) {
-			tmp[i] = 0;
-			mkdir(tmp, S_IRWXU);
+			tmp[i] = '\0';
+			if (0 > mkdir(tmp, S_IRWXU))
+				if (EEXIST != errno)
+					return -1;
 			tmp[i] = '/';
 		}
 	}
 
-	mkdir(tmp, S_IRWXU);
+	if (0 > mkdir(tmp, S_IRWXU))
+		if (EEXIST != errno)
+			return -1;
 
 	return 0;
 }
 
 /**
- * TODO
+ * Opens a fifo file named "in" at the end of the given path.
+ *
+ * Return: The open fifo file descriptor. -1 if an error opening it occured.
  */
 static int
 channel_open_fifo(const spx path)
@@ -221,7 +243,7 @@ channel_open_fifo(const spx path)
 		}
 	}
 
-	LOGINFO("Input fifo created at \"%s\"\n successfully.", tmp);
+	LOGINFO("Input fifo created at \"%s\" successfully.\n", tmp);
 	return fd;
 
 except:
@@ -238,18 +260,13 @@ channels_init(struct channels *ch, size_t init_size)
 	if (!(ch->fds = calloc(init_size, sizeof(*ch->fds))))
 		goto except;
 
-	if (!(ch->paths = calloc(init_size, sizeof(*ch->paths))))
-		goto cleanup_ch_fds;
-
 	if (!(ch->names = calloc(init_size, sizeof(*ch->names))))
-		goto cleanup_ch_paths;
+		goto cleanup_ch_fds;
 
 	ch->size = init_size;
 	ch->len = 0;
 	return 0;
 
-cleanup_ch_paths:
-	free(ch->paths);
 cleanup_ch_fds:
 	free(ch->fds);
 except:
@@ -260,7 +277,7 @@ except:
  * Add a channel to a struct channels, and resize the lists if necessary.
  */
 int
-channels_add(struct channels *ch, const spx path, const spx name)
+channels_add(struct channels *ch, const spx name)
 {
 	if (ch->len >= ch->size) {
 		// Find the nearest power of two for reallocation.
@@ -275,9 +292,6 @@ channels_add(struct channels *ch, const spx path, const spx name)
 		if (!realloc(ch->fds, sizeof(*ch->fds) * next_size))
 			return -1;
 
-		if (!realloc(ch->paths, sizeof(*ch->paths) * next_size))
-			return -1;
-
 		if (!realloc(ch->names, sizeof(*ch->names) * next_size))
 			return -1;
 
@@ -285,24 +299,15 @@ channels_add(struct channels *ch, const spx path, const spx name)
 	}
 
 	size_t i;
-	stx *sp = ch->paths + ch->len;
+	stx *sp = ch->names + ch->len;
 
-	if (0 > stxensuresize(sp, path.len + name.len + 1)) {
+	if (0 > stxensuresize(sp, name.len)) {
 		LOGERROR("Allocation of path buffer for channel \"%.*s\" failed.\n",
 				(int)name.len, name.mem);
 		return -1;
 	}
 
-	stxcpy_spx(sp, path);
-	stxapp_mem(sp, "/", 1);
-	stxapp_spx(sp, name);
-
-	for (i=sp->len - 1; i>0; --i)
-		if ('/' == sp->mem[i])
-			break;
-
-	// The name is a slice of the path.
-	ch->names[ch->len] = stxslice(stxref(sp), i, sp->len);
+	stxcpy_str(sp, name.mem);
 
 	if (0 > mkdirpath(stxref(sp))) {
 		LOGERROR("Directory creation for path \"%.*s\" failed.\n",
@@ -331,7 +336,6 @@ channels_remove(struct channels *ch, size_t index)
 
 	// The last channel in the list replaces the channel to be removed.
 	ch->fds[index] = ch->fds[ch->len - 1];
-	ch->paths[index] = ch->paths[ch->len - 1];
 	ch->names[index] = ch->names[ch->len - 1];
 
 	ch->len--;
@@ -348,13 +352,27 @@ channels_del(struct channels *ch)
 		close(ch->fds[i]);
 
 	free(ch->fds);
-	free(ch->paths);
 	free(ch->names);
 }
 
 static void
-channels_log()
+channels_log(const spx name, const spx msg)
 {
+	FILE *fp;
+	char tmp[name.len + sizeof("/out")];
+
+	memcpy(tmp, name.mem, name.len);
+	strcpy(tmp + name.len, "/out");
+
+	if (!(fp = fopen(tmp, "a"))) {
+		LOGERROR("Output file \"%s\" failed to open.\n", tmp);
+		return;
+	}
+
+	logtime(fp);
+	fprintf(fp, "\t%.*s", (int)msg.len, msg.mem);
+
+	fclose(fp);
 }
 
 static int
@@ -380,28 +398,41 @@ readline(stx *sp, int fd)
 	return 0;
 }
 
+/**
+ */
 void
-fmt_login(stx *buf, const char *host, const char *nick, const char *fullname)
+fmt_login(stx *buf, const spx host, const spx nick, const spx realname)
 {
 	buf->len = snprintf(buf->mem, buf->size,
-			"NICK %s\r\nUSER %s localhost %s :%s\r\n",
-			nick, nick, host, fullname);
+			"NICK %.*s\r\nUSER %.*s localhost %.*s :%.*s\r\n",
+			(int)nick.len, nick.mem,
+			(int)nick.len, nick.mem,
+			(int)host.len, host.mem, 
+			(int)realname.len, realname.mem);
 }
 
+/**
 void
-proc_channel_cmd(int sockfd, const stx *name, stx *buf)
+proc_irc_cmd(int sockfd, struct channels *ch, const stx *buf)
 {
+}
+ */
+
+/**
+ */
+void
+proc_channel_cmd(int sockfd, const spx path, const spx name, const stx *buf)
+{
+	for (size_t i=0; i<buf->len; ++i) {
+	}
 	if (buf->mem[0] != '/') {
 		write(sockfd, "PRIVMSG", 7);
-		write(sockfd, name->mem, name->len);
+		write(sockfd, name.mem, name.len);
 		write(sockfd, " :", 2);
 		write(sockfd, buf->mem, buf->len);
 		write(sockfd, "\r\n", 2);
 		return;
 	}
-
-	if (2 > buf->len)
-		LOGERROR("Invalid command entered\n.");
 
 	switch (buf->mem[1]) {
 	case 'j': 
@@ -419,96 +450,117 @@ proc_channel_cmd(int sockfd, const stx *name, stx *buf)
 	}
 }
 
+/**
+ * Function used as an argument parsing callback function.
+ */
 void
-assign_spx(struct spx *sp, const char *arg) {
-	sp->mem = arg;
-	sp->len = strlen(arg);
+assign_stx(struct stx *sp, size_t n, const char *arg) {
+	for (size_t i=0; i<n; ++i) {
+		if (0 < stxensuresize(sp + i, strlen(arg) + 1)) {
+			LOGFATAL("Allocation of argument string failed.\n");
+		}
+
+		stxterm(stxcpy_str(sp + i, arg));
+	}
 }
 
 int
 main(int argc, char **argv) 
 {
 	// Message buffer
-	stx buf;
+	stx buf = {0};
 
 	// Channel connection data.
-	struct channels ch;
+	struct channels ch = {0};
 
-	// Path to runtime directory files
-	spx prefix = {
-		.mem = default_prefix,
-		.len = strlen(default_prefix),
+	// Root directory
+	const spx root = {
+		".",
+		1,
 	};
 
 	// Irc server connection info.
 	int sockfd = 0;
-
+	stx prefix = {0};
 	spx host = {0};
+	stx port = {0};
+	stx nickname = {0};
+	stx realname = {0};
 
-	spx port = {
-		.mem = default_port,
-		.len = strlen(default_port)
+	struct arg_option opts[7] = {
+		{
+			'h', "help", ARG_NONE, opts, sizeof(opts)/sizeof(*opts),
+			arg_help,
+			"Show this help message and exit"
+		},
+		{
+			'v', "version", ARG_NONE, NULL, 0, version,
+			"Show the program version and exit"
+		},
+		{
+			'd', "directory", ARG_REQUIRED, &prefix, 1,
+			assign_stx,
+			"Specify the runtime [d]irectory to use"
+		},
+		{
+			'n', "nickname", ARG_REQUIRED, &nickname, 1,
+			assign_stx,
+			"Specify the [n]ickname to login with"
+		},
+		{
+			'r', "realname", ARG_REQUIRED, &realname, 1,
+			assign_stx, "Specify the [r]ealname to login with"
+		},
+		{
+			'p', "port", ARG_REQUIRED, &port, 1,
+			assign_stx,
+			"Specify the [p]ort of the remote irc server"
+		},
+		{
+			'D', "daemonize", ARG_NONE, NULL, 0,
+			daemonize,
+			"Allow the program to [d]aemonize"
+		},
 	};
 
-	spx nickname = {
-		.mem = default_nickname,
-		.len = strlen(default_nickname)
-	};
-
-	spx fullname = {
-		.mem = default_fullname,
-		.len = strlen(default_fullname)
-	};
-
-	struct arg_opt opts[] = {
-		{
-			.flag = 'h',
-			.name = "help",
-			.param = opts,
-			.callback = arg_help,
-			.help = "Show this help message and exit"
-		},
-		{
-			.flag = 'v',
-			.name = "version",
-			.callback = version,
-			.help = "Show the program version and exit"
-		},
-		{
-			.flag = 'p',
-			.name = "port",
-			.arg = ARG_REQUIRED,
-			.param = &port,
-			.callback = assign_spx,
-			.help = "Specify the [p]ort of the remote irc server"
-		},
-		{
-			.flag = 'D',
-			.name = "daemonize",
-			.callback = daemonize,
-			.help = "Allow the program to [d]aemonize"
-		},
-		{
-			.flag = 'd',
-			.name = "directory",
-			.arg = ARG_REQUIRED,
-			.param = &prefix,
-			.callback = assign_spx,
-			.help = "Specify the runtime [d]irectory to use"
-		},
-		{0}
-	};
-
-	argv = arg_parse(argv + 1, opts);
+	argv = arg_sort(argv + 1);
+	argv = arg_parse(argv, opts, sizeof(opts)/sizeof(*opts));
 
 	if (!argv[0])
 		LOGFATAL("No host argument provided.\n");
 
-	host.mem = argv[0];
-	host.len = strlen(argv[0]);
+	// Assign default args if none were given.
+	if (!stxvalid(&prefix))
+		stxdup_str(&prefix, default_prefix);
+	if (!stxvalid(&port))
+		stxdup_str(&port, default_port);
+	if (!stxvalid(&realname))
+		stxdup_str(&realname, default_realname);
+	if (!stxvalid(&nickname))
+		stxdup_str(&nickname, default_nickname);
+
+	if (0 < stxgrow(&prefix, strlen(argv[0]) + 2))
+		LOGERROR("Reallocation of prefix string failed.\n");
+
+	stxterm(stxapp_str(stxapp_str(stxtrunc(&prefix, 1), "/"), argv[0]));
+	host = stxslice(stxref(&prefix),
+			prefix.len - (strlen(argv[0]) + 1), prefix.len);
+
+	// Change to the given directory.
+	if (0 > mkdirpath(stxref(&prefix)))
+		LOGFATAL("Creation of prefix directory \"%s\" failed.\n",
+				prefix.mem);
+
+	if (0 > chdir(prefix.mem)) {
+		LOGERROR("Could not change directory: ");
+		perror("");
+		return EXIT_FAILURE;
+	}
+
+	printf("%s\n", prefix.mem);
 
 	// Open the irc-server connection.
-	if (0 > tcpopen(&sockfd, host.mem, port.mem, connect))
+	if (0 > tcpopen(&sockfd, host, stxref(&port), connect))
 		LOGFATAL("Failed to connect to host \"%s\" on port \"%s\".\n",
 				host.mem, port.mem);
 
@@ -516,17 +568,15 @@ main(int argc, char **argv)
 
 	// Initialize the message buffer and login to the remote host.
 	stxalloc(&buf, MSG_MAX);
-	fmt_login(&buf, host.mem, nickname.mem, fullname.mem);
+	fmt_login(&buf, host, stxref(&nickname), stxref(&realname));
 	send_msg(sockfd, &buf);
 
-	// Initialize the channel list and add the remote host as the first
-	// channel.
+	// Initialize the channel list.
 	if (0 > channels_init(&ch, 2))
 		LOGFATAL("Allocation of channels list failed.\n");
 
-	if (0 > channels_add(&ch, prefix, host))
-		LOGFATAL("Adding root channel \"%.*s\" failed.\n",
-				(int)host.len, host.mem);
+	// Root channel
+	channels_add(&ch, root);
 
 	while (sockfd) {
 		int maxfd;
@@ -562,9 +612,10 @@ main(int argc, char **argv)
 				perror("");
 				return EXIT_FAILURE;
 			} else {
-				channels_log();
-				fwrite(buf.mem, 1, buf.len, stdout);
-				//proc_irc_cmd(sockfd, host, &buf);
+				channels_log(root, stxref(&buf));
+				fprintf(stderr, "%.*s", buf.len, buf.mem);
+				//char tokens[7] = parse_irc_cmd(&buf);
+				//proc_irc_cmd(sockfd, &ch, &buf);
 			}
 		}
 
@@ -572,7 +623,7 @@ main(int argc, char **argv)
 			if (FD_ISSET(ch.fds[i], &rd)) {
 				if (0 > readline(&buf, ch.fds[i])) {
 					LOGERROR("Unable to read from (");
-					fwrite(ch.paths[i].mem, 1, ch.paths[i].len, stderr);
+					fwrite(ch.names[i].mem, 1, ch.names[i].len, stderr);
 					fprintf(stderr, "): ");
 					perror("");
 					return EXIT_FAILURE;
