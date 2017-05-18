@@ -9,7 +9,7 @@ DOCPREFIX = ${PREFIX}/share/doc/
 VARPREFIX = ${PREFIX}/var
 
 # Linker configuration.
-LDFLAGS = -lstx -larg
+LDFLAGS = -lstx
 
 # Compiler configuration.
 CFLAGS = -g -std=gnu99 -O0 -Wall -Wextra
