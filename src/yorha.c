@@ -5,6 +5,7 @@
 #include <limits.h>
 #include <malloc.h>
 #include <netdb.h>
+#include <ctype.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h> 
@@ -232,23 +233,14 @@ channel_open_fifo(const spx path)
 	memcpy(tmp, path.mem, path.len);
 	strcpy(tmp + path.len, "/in");
 
+	remove(tmp);
 	if (0 > (fd = mkfifo(tmp, S_IRWXU))) {
-		if (EEXIST == errno) {
-			remove(tmp);
-			if (0 > (fd = mkfifo(tmp, S_IRWXU))) {
-				goto except;
-			}
-		} else {
-			goto except;
-		}
+		LOGERROR("Input fifo creation at \"%s\" failed.\n", tmp);
+		return -1;
 	}
 
 	LOGINFO("Input fifo created at \"%s\" successfully.\n", tmp);
-	return fd;
-
-except:
-	LOGERROR("Input fifo creation at \"%s\" failed.\n", tmp);
-	return -1;
+	return open(tmp, O_RDWR | O_NONBLOCK, 0);
 }
 
 /**
@@ -298,7 +290,6 @@ channels_add(struct channels *ch, const spx name)
 		ch->size = next_size;
 	}
 
-	size_t i;
 	stx *sp = ch->names + ch->len;
 
 	if (0 > stxensuresize(sp, name.len)) {
@@ -395,6 +386,9 @@ readline(stx *sp, int fd)
 		sp->len += 1;
 	} while (ch != '\n' && sp->len <= sp->size);
 
+	// Removes and line delimiters
+	stxrstrip(sp, "\r\n", 2);
+
 	return 0;
 }
 
@@ -418,35 +412,55 @@ proc_irc_cmd(int sockfd, struct channels *ch, const stx *buf)
 }
  */
 
+int
+tokenize(spx *toks, const stx *buf)
+{
+	return 0;
+}
+
 /**
  */
 void
-proc_channel_cmd(int sockfd, const spx path, const spx name, const stx *buf)
+proc_channel_cmd(int sockfd, const spx name, const spx buf)
 {
-	for (size_t i=0; i<buf->len; ++i) {
-	}
-	if (buf->mem[0] != '/') {
-		write(sockfd, "PRIVMSG", 7);
+	spx slice = buf;
+
+	if (buf.mem[0] != '/') {
+		LOGINFO("Sending message to \"%.*s\"", (int)name.len, name.mem);
+		write(sockfd, "PRIVMSG ", 8);
 		write(sockfd, name.mem, name.len);
 		write(sockfd, " :", 2);
-		write(sockfd, buf->mem, buf->len);
+		write(sockfd, buf.mem, buf.len);
 		write(sockfd, "\r\n", 2);
-		return;
 	}
 
-	switch (buf->mem[1]) {
-	case 'j': 
-		write(sockfd, "JOIN", 4);
-		//TODO;
-	case 'p': 
-		write(sockfd, "PART", 4);
-		//TODO;
-	case 'm':
-		//TODO;
-	case 'r':
-		//TODO;
-	default: 
-		LOGERROR("Invalid command entered\n.");
+	if (buf.mem[0] == '/' && buf.len > 1) {
+		switch (buf.mem[1]) {
+		case 'j':
+			for (size_t i = 2; i < buf.len; ++i) {
+				if (buf.mem[i] != ' ') {
+					slice = stxslice(buf, i, buf.len);
+					break;
+				}
+			}
+			write(sockfd, "JOIN ", 5);
+			write(sockfd, slice.mem, slice.len);
+			write(sockfd, "\r\n", 2);
+			break;
+		case 'p': 
+			write(sockfd, "PART", 4);
+			//TODO;
+			break;
+		case 'm':
+			//TODO;
+			break;
+		case 'r':
+			//TODO;
+			break;
+		default: 
+			LOGERROR("Invalid command entered\n.");
+			break;
+		}
 	}
 }
 
@@ -473,16 +487,15 @@ main(int argc, char **argv)
 	// Channel connection data.
 	struct channels ch = {0};
 
-	// Root directory
-	const spx root = {
-		".",
-		1,
-	};
+	// Channel for communicating to the main irc channel.
+	const spx root_channel = {1, "."};
 
 	// Irc server connection info.
 	int sockfd = 0;
+
 	stx prefix = {0};
 	spx host = {0};
+
 	stx port = {0};
 	stx nickname = {0};
 	stx realname = {0};
@@ -531,20 +544,20 @@ main(int argc, char **argv)
 
 	// Assign default args if none were given.
 	if (!stxvalid(&prefix))
-		stxdup_str(&prefix, default_prefix);
+		assign_stx(&prefix, 1,default_prefix);
 	if (!stxvalid(&port))
-		stxdup_str(&port, default_port);
+		assign_stx(&port, 1, default_port);
 	if (!stxvalid(&realname))
-		stxdup_str(&realname, default_realname);
+		assign_stx(&realname, 1, default_realname);
 	if (!stxvalid(&nickname))
-		stxdup_str(&nickname, default_nickname);
+		assign_stx(&nickname, 1, default_nickname);
 
 	if (0 < stxgrow(&prefix, strlen(argv[0]) + 2))
 		LOGERROR("Reallocation of prefix string failed.\n");
 
-	stxterm(stxapp_str(stxapp_str(stxtrunc(&prefix, 1), "/"), argv[0]));
+	stxterm(stxapp_str(stxapp_str(&prefix, "/"), argv[0]));
 	host = stxslice(stxref(&prefix),
-			prefix.len - (strlen(argv[0]) + 1), prefix.len);
+			prefix.len - (strlen(argv[0])), prefix.len);
 
 	// Change to the given directory.
 	if (0 > mkdirpath(stxref(&prefix)))
@@ -576,7 +589,7 @@ main(int argc, char **argv)
 		LOGFATAL("Allocation of channels list failed.\n");
 
 	// Root channel
-	channels_add(&ch, root);
+	channels_add(&ch, root_channel);
 
 	while (sockfd) {
 		int maxfd;
@@ -585,18 +598,17 @@ main(int argc, char **argv)
 		int rv;
 
 		FD_ZERO(&rd);
-		FD_SET(sockfd, &rd);
-		tv.tv_sec = ping_timeout;
-		tv.tv_usec = 0;
 		maxfd = sockfd;
-
+		FD_SET(sockfd, &rd);
 		for (size_t i=0; i<ch.len; ++i) {
-			if (ch.fds[i] > maxfd) {
+			if (maxfd < ch.fds[i]) {
 				maxfd = ch.fds[i];
 			}
 			FD_SET(ch.fds[i], &rd);
 		}
 
+		tv.tv_sec = ping_timeout;
+		tv.tv_usec = 0;
 		rv = select(maxfd + 1, &rd, 0, 0, &tv);
 
 		if (rv < 0) {
@@ -605,15 +617,14 @@ main(int argc, char **argv)
 			//TODO(todd): handle timeout.
 		}
 
-		// Remote host has new messages.
+		// Check for messages from remote host.
 		if (FD_ISSET(sockfd, &rd)) {
 			if (0 > readline(&buf, sockfd)) {
 				LOGERROR("Unable to read from %s: ", host.mem);
-				perror("");
 				return EXIT_FAILURE;
 			} else {
-				channels_log(root, stxref(&buf));
-				fprintf(stderr, "%.*s", buf.len, buf.mem);
+				channels_log(root_channel, stxref(&buf));
+				fprintf(stderr, "%.*s\n", (int)buf.len, buf.mem);
 				//char tokens[7] = parse_irc_cmd(&buf);
 				//proc_irc_cmd(sockfd, &ch, &buf);
 			}
@@ -622,20 +633,21 @@ main(int argc, char **argv)
 		for (size_t i=0; i<ch.len; ++i) {
 			if (FD_ISSET(ch.fds[i], &rd)) {
 				if (0 > readline(&buf, ch.fds[i])) {
-					LOGERROR("Unable to read from (");
+					LOGERROR("Unable to read from channel \"");
 					fwrite(ch.names[i].mem, 1, ch.names[i].len, stderr);
-					fprintf(stderr, "): ");
-					perror("");
+					fprintf(stderr, "\"");
 					return EXIT_FAILURE;
 				} else {
 					//TODO(todd) Process client message.
+					printf("%.*s\n", (int)buf.len, buf.mem);
+					proc_channel_cmd(sockfd, stxref(ch.names + i), stxref(&buf));
 				}
 			}
 		}
 	}
 
 	channels_del(&ch);
-	stxdel(&buf);
+	stxfree(&buf);
 
 	return 0;
 }
