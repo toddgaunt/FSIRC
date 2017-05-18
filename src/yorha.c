@@ -332,20 +332,6 @@ channels_remove(struct channels *ch, size_t index)
 	ch->len--;
 }
 
-/**
- * Free all memory used by a struct channels.
- */
-static void
-channels_del(struct channels *ch)
-{
-	// Close any open OS resources.
-	for (size_t i=0; i<ch->len; ++i)
-		close(ch->fds[i]);
-
-	free(ch->fds);
-	free(ch->names);
-}
-
 static void
 channels_log(const spx name, const spx msg)
 {
@@ -405,17 +391,18 @@ fmt_login(stx *buf, const spx host, const spx nick, const spx realname)
 			(int)realname.len, realname.mem);
 }
 
-/**
-void
-proc_irc_cmd(int sockfd, struct channels *ch, const stx *buf)
-{
-}
- */
-
 int
 tokenize(spx *toks, const stx *buf)
 {
 	return 0;
+}
+
+void
+proc_irc_cmd(int sockfd, struct channels *ch, const stx *buf)
+{
+	spx toks[7] = {0};
+	tokenize(toks, buf);
+	//TODO(todd): Execute code based on tokens.
 }
 
 /**
@@ -462,6 +449,7 @@ proc_channel_cmd(int sockfd, const spx name, const spx buf)
 		// Send raw IRC protocol.
 		case 'r':
 			write(sockfd, slice.mem, slice.len);
+			write(sockfd, "\r\n", 2);
 			break;
 		default: 
 			LOGERROR("Invalid command entered\n.");
@@ -489,6 +477,7 @@ main(int argc, char **argv)
 {
 	// Message buffer
 	stx buf = {0};
+
 	// Channel connection data.
 	struct channels ch = {0};
 
@@ -617,9 +606,10 @@ main(int argc, char **argv)
 			if (0 > readline(&buf, sockfd)) {
 				LOGFATAL("Unable to read from %s: ", host.mem);
 			} else {
+				// TMP
 				fprintf(stderr, "%.*s\n", (int)buf.len, buf.mem);
-				//char tokens[7] = parse_irc_cmd(&buf);
-				//proc_irc_cmd(sockfd, &ch, &buf);
+				// TMP
+				proc_irc_cmd(sockfd, &ch, &buf);
 			}
 		}
 
@@ -637,9 +627,6 @@ main(int argc, char **argv)
 			}
 		}
 	}
-
-	channels_del(&ch);
-	stxfree(&buf);
 
 	return 0;
 }
