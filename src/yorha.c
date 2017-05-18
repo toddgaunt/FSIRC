@@ -20,8 +20,8 @@
 #include <time.h>
 #include <unistd.h>
 #include <libstx.h>
-#include <libarg.h>
 
+#include "arg.h"
 #include "yorha_config.h"
 
 #ifndef PRGM_NAME
@@ -43,17 +43,17 @@
 #define MSG_MAX 512
 
 #define LOGINFO(...)\
-	{logtime(stderr);\
-	fprintf(stderr, " "PRGM_NAME": info: "__VA_ARGS__);}
+	do {logtime(stderr);\
+	fprintf(stderr, " "PRGM_NAME": info: "__VA_ARGS__);} while (0)
 
 #define LOGERROR(...)\
-	{logtime(stderr);\
-	fprintf(stderr, " "PRGM_NAME": error: "__VA_ARGS__);}
+	do {logtime(stderr);\
+	fprintf(stderr, " "PRGM_NAME": error: "__VA_ARGS__);} while (0)
 
 #define LOGFATAL(...)\
-	{logtime(stderr);\
+	do {logtime(stderr);\
 	fprintf(stderr, " "PRGM_NAME": fatal: "__VA_ARGS__);\
-	exit(EXIT_FAILURE);}
+	exit(EXIT_FAILURE);} while (0)
 
 struct channels {
 	size_t size;
@@ -423,8 +423,6 @@ tokenize(spx *toks, const stx *buf)
 void
 proc_channel_cmd(int sockfd, const spx name, const spx buf)
 {
-	spx slice = buf;
-
 	if (buf.mem[0] != '/') {
 		LOGINFO("Sending message to \"%.*s\"", (int)name.len, name.mem);
 		write(sockfd, "PRIVMSG ", 8);
@@ -435,27 +433,35 @@ proc_channel_cmd(int sockfd, const spx name, const spx buf)
 	}
 
 	if (buf.mem[0] == '/' && buf.len > 1) {
+		spx slice = stxslice(buf, 2, buf.len);
 		switch (buf.mem[1]) {
+		// Join a channel.
 		case 'j':
-			for (size_t i = 2; i < buf.len; ++i) {
-				if (buf.mem[i] != ' ') {
-					slice = stxslice(buf, i, buf.len);
-					break;
-				}
-			}
 			write(sockfd, "JOIN ", 5);
 			write(sockfd, slice.mem, slice.len);
 			write(sockfd, "\r\n", 2);
 			break;
+		// Part from a channel.
 		case 'p': 
 			write(sockfd, "PART", 4);
-			//TODO;
+			write(sockfd, slice.mem, slice.len);
+			write(sockfd, "\r\n", 2);
 			break;
+		// Send a "me" message.
 		case 'm':
-			//TODO;
+			write(sockfd, "ME", 2);
+			write(sockfd, slice.mem, slice.len);
+			write(sockfd, "\r\n", 2);
 			break;
+		// Set status to "away".
+		case 'a':
+			write(sockfd, "AWAY", 4);
+			write(sockfd, slice.mem, slice.len);
+			write(sockfd, "\r\n", 2);
+			break;
+		// Send raw IRC protocol.
 		case 'r':
-			//TODO;
+			write(sockfd, slice.mem, slice.len);
 			break;
 		default: 
 			LOGERROR("Invalid command entered\n.");
@@ -483,55 +489,53 @@ main(int argc, char **argv)
 {
 	// Message buffer
 	stx buf = {0};
-
 	// Channel connection data.
 	struct channels ch = {0};
-
 	// Channel for communicating to the main irc channel.
 	const spx root_channel = {1, "."};
 
 	// Irc server connection info.
 	int sockfd = 0;
-
 	stx prefix = {0};
 	spx host = {0};
-
 	stx port = {0};
 	stx nickname = {0};
 	stx realname = {0};
 
 	struct arg_option opts[7] = {
 		{
-			'h', "help", ARG_NONE, opts, sizeof(opts)/sizeof(*opts),
-			arg_help,
+			'h', "help", opts, sizeof(opts)/sizeof(*opts),
+			arg_help, NULL,
 			"Show this help message and exit"
 		},
 		{
-			'v', "version", ARG_NONE, NULL, 0, version,
+			'v', "version", NULL, 0,
+			version, NULL,
 			"Show the program version and exit"
 		},
 		{
-			'd', "directory", ARG_REQUIRED, &prefix, 1,
-			assign_stx,
+			'd', "directory", &prefix, 1,
+			assign_stx, default_prefix,
 			"Specify the runtime [d]irectory to use"
 		},
 		{
-			'n', "nickname", ARG_REQUIRED, &nickname, 1,
-			assign_stx,
+			'n', "nickname", &nickname, 1,
+			assign_stx, default_nickname,
 			"Specify the [n]ickname to login with"
 		},
 		{
-			'r', "realname", ARG_REQUIRED, &realname, 1,
-			assign_stx, "Specify the [r]ealname to login with"
+			'r', "realname", &realname, 1,
+			assign_stx, default_realname,
+			"Specify the [r]ealname to login with"
 		},
 		{
-			'p', "port", ARG_REQUIRED, &port, 1,
-			assign_stx,
+			'p', "port", &port, 1,
+			assign_stx, default_port,
 			"Specify the [p]ort of the remote irc server"
 		},
 		{
-			'D', "daemonize", ARG_NONE, NULL, 0,
-			daemonize,
+			'D', "daemonize", NULL, 0,
+			daemonize, NULL,
 			"Allow the program to [d]aemonize"
 		},
 	};
@@ -542,35 +546,28 @@ main(int argc, char **argv)
 	if (!argv[0])
 		LOGFATAL("No host argument provided.\n");
 
-	// Assign default args if none were given.
-	if (!stxvalid(&prefix))
-		assign_stx(&prefix, 1,default_prefix);
-	if (!stxvalid(&port))
-		assign_stx(&port, 1, default_port);
-	if (!stxvalid(&realname))
-		assign_stx(&realname, 1, default_realname);
-	if (!stxvalid(&nickname))
-		assign_stx(&nickname, 1, default_nickname);
+	// Append hostname to prefix and slice it.
+	{
+		size_t index = prefix.len;
+		if (0 < stxensuresize(&prefix, index + strlen(argv[0]) + 2))
+			return EXIT_FAILURE;
 
-	if (0 < stxgrow(&prefix, strlen(argv[0]) + 2))
-		LOGERROR("Reallocation of prefix string failed.\n");
+		stxterm(stxapp_str(stxapp_str(&prefix, "/"), argv[0]));
+		host = stxslice(stxref(&prefix), index + 1, prefix.len);
+	}
 
-	stxterm(stxapp_str(stxapp_str(&prefix, "/"), argv[0]));
-	host = stxslice(stxref(&prefix),
-			prefix.len - (strlen(argv[0])), prefix.len);
-
-	// Change to the given directory.
-	if (0 > mkdirpath(stxref(&prefix)))
+	// Change to the supplied prefix.
+	if (0 > mkdirpath(stxref(&prefix))) {
 		LOGFATAL("Creation of prefix directory \"%s\" failed.\n",
 				prefix.mem);
+	}
 
 	if (0 > chdir(prefix.mem)) {
+		exit(EXIT_FAILURE);
 		LOGERROR("Could not change directory: ");
 		perror("");
 		return EXIT_FAILURE;
 	}
-
-	printf("%s\n", prefix.mem);
 
 	// Open the irc-server connection.
 	if (0 > tcpopen(&sockfd, host, stxref(&port), connect))
@@ -588,7 +585,7 @@ main(int argc, char **argv)
 	if (0 > channels_init(&ch, 2))
 		LOGFATAL("Allocation of channels list failed.\n");
 
-	// Root channel
+	// Root directory channel
 	channels_add(&ch, root_channel);
 
 	while (sockfd) {
@@ -614,14 +611,13 @@ main(int argc, char **argv)
 		if (rv < 0) {
 			LOGFATAL("Error running select().\n");
 		} else if (rv == 0) {
-			//TODO(todd): handle timeout.
+			//TODO(todd): handle timeout with ping message.
 		}
 
 		// Check for messages from remote host.
 		if (FD_ISSET(sockfd, &rd)) {
 			if (0 > readline(&buf, sockfd)) {
-				LOGERROR("Unable to read from %s: ", host.mem);
-				return EXIT_FAILURE;
+				LOGFATAL("Unable to read from %s: ", host.mem);
 			} else {
 				channels_log(root_channel, stxref(&buf));
 				fprintf(stderr, "%.*s\n", (int)buf.len, buf.mem);
@@ -633,14 +629,13 @@ main(int argc, char **argv)
 		for (size_t i=0; i<ch.len; ++i) {
 			if (FD_ISSET(ch.fds[i], &rd)) {
 				if (0 > readline(&buf, ch.fds[i])) {
-					LOGERROR("Unable to read from channel \"");
-					fwrite(ch.names[i].mem, 1, ch.names[i].len, stderr);
-					fprintf(stderr, "\"");
-					return EXIT_FAILURE;
+					LOGFATAL("Unable to read from channel \"%.*s\"",
+						(int)ch.names[i].len,
+						ch.names[i].mem);
 				} else {
-					//TODO(todd) Process client message.
-					printf("%.*s\n", (int)buf.len, buf.mem);
-					proc_channel_cmd(sockfd, stxref(ch.names + i), stxref(&buf));
+					proc_channel_cmd(sockfd,
+							stxref(ch.names + i),
+							stxref(&buf));
 				}
 			}
 		}

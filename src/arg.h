@@ -3,16 +3,13 @@
 
 #include <stdbool.h>
 
-#define ARG_REQUIRED 1
-#define ARG_NONE 0
-
 struct arg_option {
 	const char flag;
 	const char *name;
-	bool arg;
 	void *parv;
 	size_t parc;
 	void (*callback)();
+	const char *default_arg;
 	const char *help;
 };
 

@@ -2,12 +2,12 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "libarg.h"
+#include "arg.h"
 
 void
 arg_flag(int *parv, size_t parc)
 {
-	for (size_t i=0; i<parc; ++i) {
+	for (size_t i = 0; i < parc; ++i) {
 			parv[i] = 1;
 	}
 }
@@ -15,7 +15,7 @@ arg_flag(int *parv, size_t parc)
 void
 arg_not(int *parv, size_t parc)
 {
-	for (size_t i=0; i<parc; ++i) {
+	for (size_t i = 0; i < parc; ++i) {
 			parv[i] = !parv[i];
 	}
 }
@@ -23,7 +23,7 @@ arg_not(int *parv, size_t parc)
 void
 arg_assign_ptr(char **parv, size_t parc, char *str)
 {
-	for (size_t i=0; i<parc; ++i) {
+	for (size_t i = 0; i < parc; ++i) {
 			parv[i] = str;
 	}
 }
@@ -44,7 +44,7 @@ arg_assign_double(double *parv, size_t parc, char *str)
 {
 	if (parc > 0) {
 		double res = strtod(str, NULL);
-		for (size_t i=0; i<parc; ++i) {
+		for (size_t i = 0; i < parc; ++i) {
 				parv[i] = res;
 		}
 	}
@@ -55,7 +55,7 @@ print_optlist(const struct arg_option *opt, size_t optc)
 {
 	fprintf(stderr, "usage: ");
 
-	for (size_t i=0; i<optc; ++i) {
+	for (size_t i = 0; i < optc; ++i) {
 		if (opt[i].flag && opt[i].name) {
 			fprintf(stderr, " [-%c, --%s", opt[i].flag, opt[i].name);
 		} else if (opt[i].flag) {
@@ -68,7 +68,7 @@ print_optlist(const struct arg_option *opt, size_t optc)
 		}
 
 		// The flag requires an argument list
-		if (opt[i].arg) {
+		if (opt[i].default_arg) {
 			if (opt[i].name) {
 				fprintf(stderr, " <%s>", opt[i].name);
 			} else if (opt[i].flag) {
@@ -91,7 +91,7 @@ arg_help(const struct arg_option *opt, size_t optc)
 	print_optlist(opt, optc);
 
 	fprintf(stderr, "options:\n");
-	for (size_t i=0; i<optc; ++i) {
+	for (size_t i = 0; i < optc; ++i) {
 		if (opt[i].flag && opt[i].name) {
 			fprintf(stderr, "\t-%c, --%s", opt[i].flag, opt[i].name);
 		} else if (opt[i].flag) {
@@ -128,9 +128,10 @@ arg_sort(char **argv)
 }
 
 static char **
-opt_name_callback(char **pp, const struct arg_option *opt, size_t optc)
+opt_name_callback(char **pp, bool *called, const struct arg_option *opt, size_t optc)
 {
-	for (size_t i=0; i<optc; ++i) {
+	size_t i;
+	for (i = 0; i < optc; ++i) {
 		int len = strlen(opt[i].name);
 		if (0 != strncmp(opt[i].name, pp[0], len))
 			continue;
@@ -143,7 +144,7 @@ opt_name_callback(char **pp, const struct arg_option *opt, size_t optc)
 				arg_usage(opt, optc);
 		}
 
-		if (ARG_REQUIRED == opt[i].arg) {
+		if (opt[i].default_arg) {
 			if ('=' == pp[0][0]) {
 				++pp[0];
 
@@ -174,6 +175,7 @@ opt_name_callback(char **pp, const struct arg_option *opt, size_t optc)
 				opt[i].callback();
 			}
 		}
+
 		goto success;
 	}
 
@@ -181,19 +183,21 @@ opt_name_callback(char **pp, const struct arg_option *opt, size_t optc)
 	arg_usage(opt, optc);
 
 success:
+	called[i] = true;
 	return pp;
 }
 
 static char **
-opt_flag_callback(char **pp, const struct arg_option *opt, size_t optc)
+opt_flag_callback(char **pp, bool *called, const struct arg_option *opt, size_t optc)
 {
-	for (size_t i=0; i<optc; ++i) {
+	size_t i;
+	for (i = 0; i < optc; ++i) {
 		if (pp[0][0] != opt[i].flag)
 			continue;
 
 		++pp[0];
 
-		if (ARG_REQUIRED == opt[i].arg) {
+		if (opt[i].default_arg) {
 			if ('\0' == pp[0][0]) {
 				++pp;
 				if (!pp[0]) {
@@ -221,13 +225,19 @@ opt_flag_callback(char **pp, const struct arg_option *opt, size_t optc)
 	arg_usage(opt, optc);
 
 success:
+	called[i] = true;
 	return pp;
 }
 
 char **
 arg_parse(char **argv, const struct arg_option *opt, size_t optc)
 {
+	// Iterator through argv.
 	char **pp = argv;
+	// Array of flags indicating if a callback was called or not.
+	bool called[optc];
+
+	memset(called, 0, sizeof(called));
 	while (pp[0] && pp[0][0]) {
 		// Argument termination.
 		if (0 == strcmp(pp[0], "--"))
@@ -237,16 +247,25 @@ arg_parse(char **argv, const struct arg_option *opt, size_t optc)
 			++pp[0];
 			if ('-' == pp[0][0]) {
 				++pp[0];
-				pp = opt_name_callback(pp, opt, optc);
+				pp = opt_name_callback(pp, called, opt, optc);
 			} else {
 				char **tmp = pp;
 				while (pp == tmp && pp[0][0]) {
-					pp = opt_flag_callback(pp, opt, optc);
+					pp = opt_flag_callback(pp, called, opt, optc);
 				}
 			}
 		} else {
 			// Non-option encountered.
-			return pp;
+			break;
+		}
+	}
+
+	// Call uncalled options with default arguments.
+	for (size_t i = 0; i < optc; ++i) {
+		if (!called[i] && opt[i].default_arg) {
+			opt[i].callback(opt[i].parv,
+					opt[i].parc,
+					opt[i].default_arg);
 		}
 	}
 
