@@ -55,6 +55,9 @@
 	fprintf(stderr, " "PRGM_NAME": fatal: "__VA_ARGS__);\
 	exit(EXIT_FAILURE);} while (0)
 
+// For tokenizing irc server messages.
+enum {TOK_PREFIX = 0, TOK_CMD, TOK_ARG, TOK_TEXT, TOK_LAST};
+
 struct channels {
 	size_t size;
 	size_t len;
@@ -319,17 +322,29 @@ channels_add(struct channels *ch, const spx name)
 /**
  * Remove a channel from a struct channels.
  */
-static void
-channels_remove(struct channels *ch, size_t index)
+static int
+channels_del(struct channels *ch, const spx name)
 {
+	size_t i;
+	for (size_t i=0; i<ch->len; ++i) {
+		if (0 == stxcmp(stxref(ch->names + i), name)) {
+			goto found;
+		}
+	}
+
+	return -1;
+
+found:
 	// Close any open OS resources.
-	close(ch->fds[index]);
+	close(ch->fds[i]);
 
 	// The last channel in the list replaces the channel to be removed.
-	ch->fds[index] = ch->fds[ch->len - 1];
-	ch->names[index] = ch->names[ch->len - 1];
+	ch->fds[i] = ch->fds[ch->len - 1];
+	ch->names[i] = ch->names[ch->len - 1];
 
 	ch->len--;
+
+	return 0;
 }
 
 static void
@@ -353,9 +368,9 @@ channels_log(const spx name, const spx msg)
 }
 
 static int
-send_msg(int sockfd, const stx *sp)
+write_spx(int sockfd, const spx sp)
 {
-	return write(sockfd, sp->mem, sp->len);
+	return write(sockfd, sp.mem, sp.len);
 }
 
 static int
@@ -392,16 +407,52 @@ fmt_login(stx *buf, const spx host, const spx nick, const spx realname)
 }
 
 int
-tokenize(spx *toks, const stx *buf)
+tokenize(spx *tok, size_t ntok, const spx buf)
 {
-	return 0;
+	size_t n = 0;
+	spx slice = stxslice(buf, 0, buf.len);
+
+	// Skip the PREFIX token if not present.
+	if (slice.mem[0] != ':')
+		++n;
+
+	for (; n < ntok; ++n) {
+		switch (n) {
+		case TOK_ARG:
+			tok[n] = stxtok(&slice, ":", 1);
+			break;
+		case TOK_TEXT:
+			// Grab the remainder of the text.
+			tok[n] = slice;
+			break;
+		default:
+			tok[n] = stxtok(&slice, " ", 1);
+			break;
+		}
+	}
+
+	// Number of tokens grabbed.
+	return n;
 }
 
 void
-proc_irc_cmd(int sockfd, struct channels *ch, const stx *buf)
+proc_irc_cmd(int sockfd, struct channels *ch, const spx buf)
 {
-	spx toks[7] = {0};
-	tokenize(toks, buf);
+	spx tok[TOK_LAST] = {0};
+	size_t ntoks = tokenize(tok, TOK_LAST, buf);
+
+	spx cmd = tok[TOK_CMD];
+	if (stxcmp(cmd, (spx){4, "PING"})) {
+		write(sockfd, "PONG", 4);
+		write_spx(sockfd, tok[TOK_ARG]);
+		write(sockfd, "\r\n", 2);
+	}
+	if (stxcmp(cmd, (spx){4, "PART"})) {
+		channels_del(ch, tok[TOK_ARG]);
+	}
+	if (stxcmp(cmd, (spx){4, "JOIN"})) {
+		channels_add(ch, tok[TOK_ARG]);
+	}
 	//TODO(todd): Execute code based on tokens.
 }
 
@@ -420,7 +471,13 @@ proc_channel_cmd(int sockfd, const spx name, const spx buf)
 	}
 
 	if (buf.mem[0] == '/' && buf.len > 1) {
-		spx slice = stxslice(buf, 2, buf.len);
+		size_t i;
+		spx slice;
+
+		// Remove leading whitespace.
+		for (i = 0; i < buf.len && buf.mem[i] != ' '; ++i);
+		slice = stxslice(buf, i, buf.len);
+
 		switch (buf.mem[1]) {
 		// Join a channel.
 		case 'j':
@@ -566,7 +623,7 @@ main(int argc, char **argv)
 	// Initialize the message buffer and login to the remote host.
 	stxalloc(&buf, MSG_MAX);
 	fmt_login(&buf, host, stxref(&nickname), stxref(&realname));
-	send_msg(sockfd, &buf);
+	write_spx(sockfd, stxref(&buf));
 
 	// Initialize the channel list.
 	if (0 > channels_init(&ch, 2))
@@ -609,7 +666,7 @@ main(int argc, char **argv)
 				// TMP
 				fprintf(stderr, "%.*s\n", (int)buf.len, buf.mem);
 				// TMP
-				proc_irc_cmd(sockfd, &ch, &buf);
+				proc_irc_cmd(sockfd, &ch, stxref(&buf));
 			}
 		}
 
