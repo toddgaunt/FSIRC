@@ -325,26 +325,23 @@ channels_add(struct channels *ch, const spx name)
 static int
 channels_del(struct channels *ch, const spx name)
 {
-	size_t i;
+	size_t i = 0;
 	for (size_t i=0; i<ch->len; ++i) {
 		if (0 == stxcmp(stxref(ch->names + i), name)) {
-			goto found;
+			// Close any open OS resources.
+			close(ch->fds[i]);
+
+			// The last channel in the list replaces the channel to be removed.
+			ch->fds[i] = ch->fds[ch->len - 1];
+			ch->names[i] = ch->names[ch->len - 1];
+
+			ch->len--;
+
+			return 0;
 		}
 	}
 
 	return -1;
-
-found:
-	// Close any open OS resources.
-	close(ch->fds[i]);
-
-	// The last channel in the list replaces the channel to be removed.
-	ch->fds[i] = ch->fds[ch->len - 1];
-	ch->names[i] = ch->names[ch->len - 1];
-
-	ch->len--;
-
-	return 0;
 }
 
 static void
