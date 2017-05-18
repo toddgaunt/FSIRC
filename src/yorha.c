@@ -491,8 +491,6 @@ main(int argc, char **argv)
 	stx buf = {0};
 	// Channel connection data.
 	struct channels ch = {0};
-	// Channel for communicating to the main irc channel.
-	const spx root_channel = {1, "."};
 
 	// Irc server connection info.
 	int sockfd = 0;
@@ -586,7 +584,7 @@ main(int argc, char **argv)
 		LOGFATAL("Allocation of channels list failed.\n");
 
 	// Root directory channel
-	channels_add(&ch, root_channel);
+	channels_add(&ch, (spx){1, "."});
 
 	while (sockfd) {
 		int maxfd;
@@ -619,7 +617,6 @@ main(int argc, char **argv)
 			if (0 > readline(&buf, sockfd)) {
 				LOGFATAL("Unable to read from %s: ", host.mem);
 			} else {
-				channels_log(root_channel, stxref(&buf));
 				fprintf(stderr, "%.*s\n", (int)buf.len, buf.mem);
 				//char tokens[7] = parse_irc_cmd(&buf);
 				//proc_irc_cmd(sockfd, &ch, &buf);
