@@ -516,13 +516,13 @@ proc_channel_cmd(int sockfd, const spx name, const spx buf)
  * Function used as an argument parsing callback function.
  */
 void
-assign_stx(struct stx *sp, size_t n, const char *arg) {
-	for (size_t i=0; i<n; ++i) {
-		if (0 < stxensuresize(sp + i, strlen(arg) + 1)) {
+setstx(size_t argc, struct stx *argv, const char *arg) {
+	for (size_t i=0; i<argc; ++i) {
+		if (0 < stxensuresize(&argv[i], strlen(arg) + 1)) {
 			LOGFATAL("Allocation of argument string failed.\n");
 		}
 
-		stxterm(stxcpy_str(sp + i, arg));
+		stxterm(stxcpy_str(&argv[i], arg));
 	}
 }
 
@@ -543,46 +543,46 @@ main(int argc, char **argv)
 	stx nickname = {0};
 	stx realname = {0};
 
-	struct arg_option opts[7] = {
+	struct arg_option opt[7] = {
 		{
-			'h', "help", opts, sizeof(opts)/sizeof(*opts),
+			'h', "help", sizeof(opt)/sizeof(*opt), opt,
 			arg_help, NULL,
 			"Show this help message and exit"
 		},
 		{
-			'v', "version", NULL, 0,
+			'v', "version", 0, NULL,
 			version, NULL,
 			"Show the program version and exit"
 		},
 		{
-			'd', "directory", &prefix, 1,
-			assign_stx, default_prefix,
-			"Specify the runtime [d]irectory to use"
+			'd', "directory", 1, &prefix,
+			setstx, default_prefix,
+			"Specify the runtime directory to use"
 		},
 		{
-			'n', "nickname", &nickname, 1,
-			assign_stx, default_nickname,
-			"Specify the [n]ickname to login with"
+			'n', "nickname", 1, &nickname,
+			setstx, default_nickname,
+			"Specify the nickname to login with"
 		},
 		{
-			'r', "realname", &realname, 1,
-			assign_stx, default_realname,
-			"Specify the [r]ealname to login with"
+			'r', "realname", 1, &realname,
+			setstx, default_realname,
+			"Specify the realname to login with"
 		},
 		{
-			'p', "port", &port, 1,
-			assign_stx, default_port,
-			"Specify the [p]ort of the remote irc server"
+			'p', "port", 1, &port,
+			setstx, default_port,
+			"Specify the port of the remote irc server"
 		},
 		{
-			'D', "daemonize", NULL, 0,
+			'D', "daemonize", 0, NULL,
 			daemonize, NULL,
-			"Allow the program to [d]aemonize"
+			"Allow the program to daemonize"
 		},
 	};
 
 	argv = arg_sort(argv + 1);
-	argv = arg_parse(argv, opts, sizeof(opts)/sizeof(*opts));
+	argv = arg_parse(argv, sizeof(opt)/sizeof(*opt), opt);
 
 	if (!argv[0])
 		LOGFATAL("No host argument provided.\n");

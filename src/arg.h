@@ -6,18 +6,18 @@
 struct arg_option {
 	const char flag;
 	const char *name;
-	void *parv;
-	size_t parc;
+	size_t argc;
+	void *argv;
 	void (*callback)();
 	const char *default_arg;
 	const char *help;
 };
 
 // Help message callback
-void arg_help(const struct arg_option *opt, size_t optc);
+void arg_help(const size_t optc, const struct arg_option *optv);
 
 // Help functions.
-void arg_usage(const struct arg_option *opt, size_t optc);
+void arg_usage(const size_t optc, const struct arg_option *optv);
 
 // Provided callback functions. They define the specification for a libarg
 // callback function. The first argument is usually the destination of the
@@ -25,13 +25,13 @@ void arg_usage(const struct arg_option *opt, size_t optc);
 // arguments, and the third argument is string-literals that gets processed.
 // The return value is the number of arguments succesfully parsed. -1 is
 // is returned upon an error during the callback.
-void arg_not(int *parv, size_t parc);
-void arg_flag(int *parv, size_t parc);
-void arg_assign_ptr(char **parv, size_t parc, char *arg);
-void arg_assign_long(long *parv, size_t parc, char *arg);
-void arg_assign_double(double *par, size_t parc, char *arg);
+void arg_setnot(const size_t argc, int *argv);
+void arg_setflag(const size_t argc, int *argv);
+void arg_setptr(const size_t argc, const char **argv, const char *str);
+void arg_setlong(const size_t argc, long *argv, const char *str);
+void arg_setdouble(const size_t argc, double *argv, const char *str);
 
 char **arg_sort(char **argv);
-char **arg_parse(char **argv, const struct arg_option *opt, size_t optc);
+char **arg_parse(char **argv, const size_t optc, const struct arg_option *optv);
 
 #endif
