@@ -22,7 +22,7 @@
 #include <libstx.h>
 
 #include "arg.h"
-#include "yorha_config.h"
+#include "config.h"
 
 #ifndef PRGM_NAME
 #define PRGM_NAME "null"
