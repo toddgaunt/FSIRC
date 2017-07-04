@@ -71,6 +71,8 @@ struct channels {
 	stx *names;
 };
 
+const spx root = {1, "."};
+
 static void
 version()
 {
@@ -252,26 +254,19 @@ channel_open_fifo(const spx path)
 	return open(tmp, O_RDWR | O_NONBLOCK, 0);
 }
 
-/**
- * Allocate and initialize memory for a struct channels.
- */
-int
-channels_init(struct channels *ch, size_t init_size)
+size_t
+nearpowerof2(size_t max)
 {
-	if (!(ch->fds = calloc(init_size, sizeof(*ch->fds))))
-		goto except;
+	size_t next_size = 1;
 
-	if (!(ch->names = calloc(init_size, sizeof(*ch->names))))
-		goto cleanup_ch_fds;
+	if (max >= SIZE_MAX / 2) {
+		next_size = SIZE_MAX;
+	} else {
+		while (next_size < max)
+			next_size <<= 1;
+	}
 
-	ch->size = init_size;
-	ch->len = 0;
-	return 0;
-
-cleanup_ch_fds:
-	free(ch->fds);
-except:
-	return -1;
+	return max;
 }
 
 /**
@@ -280,26 +275,35 @@ except:
 int
 channels_add(struct channels *ch, const spx name)
 {
+	stx *sp;
+
 	if (ch->len >= ch->size) {
-		// Find the nearest power of two for reallocation.
-		size_t next_size = 2;
-		if (ch->size >= SIZE_MAX / 2) {
-			next_size = SIZE_MAX;
+		void *tmp;
+		size_t nextsize = nearpowerof2(ch->size + 1);
+		size_t diff = nextsize - ch->size;
+		
+		tmp = realloc(ch->fds, sizeof(*ch->fds) * nextsize);
+		if (!tmp) {
+				return -1;
 		} else {
-			while (next_size < ch->size)
-				next_size <<= 1;
+			ch->fds = tmp;
 		}
 
-		if (!realloc(ch->fds, sizeof(*ch->fds) * next_size))
-			return -1;
+		tmp = realloc(ch->names, sizeof(*ch->names) * nextsize);
+		if (!tmp) {
+				return -1;
+		} else {
+			ch->names = tmp;
+		}
 
-		if (!realloc(ch->names, sizeof(*ch->names) * next_size))
-			return -1;
+		// Zero initialize the added memory.
+		memset(&ch->fds[ch->size], 0, sizeof(*ch->fds) * diff);
+		memset(&ch->names[ch->size], 0, sizeof(*ch->names) * diff);
 
-		ch->size = next_size;
+		ch->size = nextsize;
 	}
 
-	stx *sp = ch->names + ch->len;
+	sp = &ch->names[ch->len];
 
 	if (0 > stxensuresize(sp, name.len)) {
 		LOGERROR("Allocation of path buffer for channel \"%.*s\" failed.\n",
@@ -307,7 +311,7 @@ channels_add(struct channels *ch, const spx name)
 		return -1;
 	}
 
-	stxcpy_str(sp, name.mem);
+	stxcpy_spx(sp, name);
 
 	if (0 > mkdirpath(stxref(sp))) {
 		LOGERROR("Directory creation for path \"%.*s\" failed.\n",
@@ -315,12 +319,10 @@ channels_add(struct channels *ch, const spx name)
 		return -1;
 	}
 
-
-	if (0 > (ch->fds[ch->len] = channel_open_fifo(stxref(sp)))) {
+	if (0 > (ch->fds[ch->len] = channel_open_fifo(stxref(sp))))
 		return -1;
-	}
 
-	++ch->len;
+	ch->len += 1;
 
 	return 0;
 }
@@ -365,8 +367,7 @@ channels_log(const spx name, const spx msg)
 	}
 
 	logtime(fp);
-	fprintf(fp, "\t%.*s", (int)msg.len, msg.mem);
-
+	fprintf(fp, " %.*s\n", (int)msg.len, msg.mem);
 	fclose(fp);
 }
 
@@ -409,20 +410,23 @@ fmt_login(stx *buf, const spx host, const spx nick, const spx realname)
 			(int)realname.len, realname.mem);
 }
 
-int
+void
 tokenize(spx *tok, size_t ntok, const spx buf)
 {
-	size_t n = 0;
 	spx slice = stxslice(buf, 0, buf.len);
 
-	// Skip the PREFIX token if not present.
-	if (slice.mem[0] != ':')
-		++n;
-
-	for (; n < ntok; ++n) {
+	for (size_t n = slice.mem[0] == ':' ? 0 : 1; n < ntok; ++n) {
 		switch (n) {
+		case TOK_PREFIX:
+			tok[n] = stxtok(&slice, " ", 1);
+			/* Remove the leading ':' character */
+			tok[n].len -= 1;
+			tok[n].mem += 1;
+			break;
 		case TOK_ARG:
 			tok[n] = stxtok(&slice, ":", 1);
+			// Strip the space character.
+			tok[n].len -= 1;
 			break;
 		case TOK_TEXT:
 			// Grab the remainder of the text.
@@ -433,28 +437,27 @@ tokenize(spx *tok, size_t ntok, const spx buf)
 			break;
 		}
 	}
-
-	// Number of tokens grabbed.
-	return n;
 }
 
 void
 proc_irc_cmd(int sockfd, struct channels *ch, const spx buf)
 {
 	spx tok[TOK_LAST] = {0};
-	size_t ntoks = tokenize(tok, TOK_LAST, buf);
+	tokenize(tok, TOK_LAST, buf);
 
 	spx cmd = tok[TOK_CMD];
 	if (stxcmp(cmd, (spx){4, "PING"})) {
 		write(sockfd, "PONG", 4);
 		write_spx(sockfd, tok[TOK_ARG]);
 		write(sockfd, "\r\n", 2);
-	}
-	if (stxcmp(cmd, (spx){4, "PART"})) {
+	} else if (stxcmp(cmd, (spx){4, "PART"})) {
 		channels_del(ch, tok[TOK_ARG]);
-	}
-	if (stxcmp(cmd, (spx){4, "JOIN"})) {
+	} else if (stxcmp(cmd, (spx){4, "JOIN"})) {
 		channels_add(ch, tok[TOK_ARG]);
+	} else if (stxcmp(cmd, (spx){7, "PRIVMSG"})) {
+		channels_log(tok[TOK_ARG], buf);
+	} else {
+		channels_log(root, buf);
 	}
 	//TODO(todd): Execute code based on tokens.
 }
@@ -616,26 +619,22 @@ main(int argc, char **argv)
 		return EXIT_FAILURE;
 	}
 
-	// Open the irc-server connection.
+	/* Open the irc-server connection */
 	if (0 > tcpopen(&sockfd, host, stxref(&port), connect))
 		LOGFATAL("Failed to connect to host \"%s\" on port \"%s\".\n",
 				host.mem, port.mem);
 
 	LOGINFO("Successfully initialized.\n");
 
-	// Initialize the message buffer and login to the remote host.
+	/* Initialize the message buffer and login to the remote host */
 	stxalloc(&buf, MSG_MAX);
 	fmt_login(&buf, host, stxref(&nickname), stxref(&realname));
 	write_spx(sockfd, stxref(&buf));
 
-	// Initialize the channel list.
-	if (0 > channels_init(&ch, 2))
-		LOGFATAL("Allocation of channels list failed.\n");
+	/* Root directory channel */
+	channels_add(&ch, root);
 
-	// Root directory channel
-	channels_add(&ch, (spx){1, "."});
-
-	while (sockfd) {
+	while (1) {
 		int maxfd;
 		fd_set rd;
 		struct timeval tv;
