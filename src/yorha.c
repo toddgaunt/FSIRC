@@ -56,7 +56,13 @@
 	exit(EXIT_FAILURE);} while (0)
 
 // For tokenizing irc server messages.
-enum {TOK_PREFIX = 0, TOK_CMD, TOK_ARG, TOK_TEXT, TOK_LAST};
+enum {
+	TOK_PREFIX = 0,
+	TOK_CMD,
+	TOK_ARG,
+	TOK_TEXT,
+	TOK_LAST
+};
 
 struct channels {
 	size_t size;
@@ -331,7 +337,7 @@ channels_del(struct channels *ch, const spx name)
 			// Close any open OS resources.
 			close(ch->fds[i]);
 
-			// The last channel in the list replaces the channel to be removed.
+			// Swap last channel with removed channel.
 			ch->fds[i] = ch->fds[ch->len - 1];
 			ch->names[i] = ch->names[ch->len - 1];
 
@@ -529,13 +535,13 @@ setstx(size_t argc, struct stx *argv, const char *arg) {
 int
 main(int argc, char **argv) 
 {
-	// Message buffer
+	/* Message buffer */
 	stx buf = {0};
 
-	// Channel connection data.
+	/* Channel connection data */
 	struct channels ch = {0};
 
-	// Irc server connection info.
+	/* Irc server connection info */
 	int sockfd = 0;
 	stx prefix = {0};
 	spx host = {0};
@@ -587,7 +593,7 @@ main(int argc, char **argv)
 	if (!argv[0])
 		LOGFATAL("No host argument provided.\n");
 
-	// Append hostname to prefix and slice it.
+	/* Append hostname to prefix and slice it */
 	{
 		size_t index = prefix.len;
 		if (0 < stxensuresize(&prefix, index + strlen(argv[0]) + 2))
@@ -597,7 +603,7 @@ main(int argc, char **argv)
 		host = stxslice(stxref(&prefix), index + 1, prefix.len);
 	}
 
-	// Change to the supplied prefix.
+	/* Change to the supplied prefix */
 	if (0 > mkdirpath(stxref(&prefix))) {
 		LOGFATAL("Creation of prefix directory \"%s\" failed.\n",
 				prefix.mem);
@@ -662,7 +668,7 @@ main(int argc, char **argv)
 			} else {
 				// TMP
 				fprintf(stderr, "%.*s\n", (int)buf.len, buf.mem);
-				// TMP
+				// ENDTMP
 				proc_irc_cmd(sockfd, &ch, stxref(&buf));
 			}
 		}
