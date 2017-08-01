@@ -25,11 +25,11 @@
 #include "config.h"
 
 #ifndef PRGM_NAME
-#define PRGM_NAME "null"
+#define PRGM_NAME "NULL"
 #endif
 
 #ifndef VERSION
-#define VERSION "0.0.0"
+#define VERSION "NULL"
 #endif
 
 #ifndef PREFIX
@@ -333,8 +333,7 @@ channels_add(struct channels *ch, const spx name)
 static int
 channels_del(struct channels *ch, const spx name)
 {
-	size_t i = 0;
-	for (size_t i=0; i<ch->len; ++i) {
+	for (size_t i = 0; i < ch->len; ++i) {
 		if (0 == stxcmp(stxref(ch->names + i), name)) {
 			// Close any open OS resources.
 			close(ch->fds[i]);
@@ -391,7 +390,7 @@ readline(stx *sp, int fd)
 		sp->len += 1;
 	} while (ch != '\n' && sp->len <= sp->size);
 
-	// Removes and line delimiters
+	// Removes line delimiters
 	stxrstrip(sp, "\r\n", 2);
 
 	return 0;
@@ -459,10 +458,10 @@ proc_irc_cmd(int sockfd, struct channels *ch, const spx buf)
 	} else {
 		channels_log(root, buf);
 	}
-	//TODO(todd): Execute code based on tokens.
 }
 
 /**
+ * Process a stx into a message to be sent to an irc channel.server.
  */
 void
 proc_channel_cmd(int sockfd, const spx name, const spx buf)
@@ -488,36 +487,28 @@ proc_channel_cmd(int sockfd, const spx name, const spx buf)
 		// Join a channel.
 		case 'j':
 			write(sockfd, "JOIN ", 5);
-			write(sockfd, slice.mem, slice.len);
-			write(sockfd, "\r\n", 2);
 			break;
 		// Part from a channel.
 		case 'p': 
 			write(sockfd, "PART", 4);
-			write(sockfd, slice.mem, slice.len);
-			write(sockfd, "\r\n", 2);
 			break;
 		// Send a "me" message.
 		case 'm':
 			write(sockfd, "ME", 2);
-			write(sockfd, slice.mem, slice.len);
-			write(sockfd, "\r\n", 2);
 			break;
 		// Set status to "away".
 		case 'a':
 			write(sockfd, "AWAY", 4);
-			write(sockfd, slice.mem, slice.len);
-			write(sockfd, "\r\n", 2);
 			break;
 		// Send raw IRC protocol.
 		case 'r':
-			write(sockfd, slice.mem, slice.len);
-			write(sockfd, "\r\n", 2);
 			break;
 		default: 
 			LOGERROR("Invalid command entered\n.");
-			break;
+			return;
 		}
+		write(sockfd, slice.mem, slice.len);
+		write(sockfd, "\r\n", 2);
 	}
 }
 
@@ -554,7 +545,7 @@ main(int argc, char **argv)
 
 	struct arg_option opt[7] = {
 		{
-			'h', "help", sizeof(opt)/sizeof(*opt), opt,
+			'h', "help", sizeof(opt) / sizeof(*opt), opt,
 			arg_help, NULL,
 			"Show this help message and exit"
 		},
@@ -590,8 +581,12 @@ main(int argc, char **argv)
 		},
 	};
 
+	if (argc < 2) {
+		arg_usage(sizeof(opt) / sizeof(*opt), opt);
+	}
+
 	argv = arg_sort(argv + 1);
-	argv = arg_parse(argv, sizeof(opt)/sizeof(*opt), opt);
+	argv = arg_parse(argv, sizeof(opt) / sizeof(*opt), opt);
 
 	if (!argv[0])
 		LOGFATAL("No host argument provided.\n");
@@ -634,6 +629,7 @@ main(int argc, char **argv)
 	/* Root directory channel */
 	channels_add(&ch, root);
 
+	/* Main loop */
 	while (1) {
 		int maxfd;
 		fd_set rd;
