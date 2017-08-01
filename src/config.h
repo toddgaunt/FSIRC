@@ -1,4 +1,4 @@
-const int ping_timeout = 300;
+static const int ping_timeout = 300;
 
 //TODO(todd): XDG
 static const char *default_prefix = "/tmp/yorha";
