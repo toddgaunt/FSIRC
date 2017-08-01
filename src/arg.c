@@ -117,7 +117,7 @@ void
 arg_usage(const size_t optc, const struct arg_option *optv)
 {
 	print_optlist(optc, optv);
-	exit (EXIT_FAILURE);
+	exit(EXIT_FAILURE);
 }
 
 char **
