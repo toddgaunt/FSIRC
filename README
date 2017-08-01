@@ -1,0 +1,5 @@
+Yorha is a filesystem-based IRC client written in C.
+
+## Dependencies
+- C99 compliant compiler
+- libstx (www.toddgaunt.com)
