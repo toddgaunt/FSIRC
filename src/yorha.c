@@ -414,7 +414,7 @@ tokenize(spx *tok, size_t ntok, const spx buf)
 {
 	spx slice = stxslice(buf, 0, buf.len);
 
-	for (size_t n = slice.mem[0] == ':' ? 0 : 1; n < ntok; ++n) {
+	for (size_t n = (slice.mem[0] == ':' ? 0 : 1); n < ntok; ++n) {
 		switch (n) {
 		case TOK_PREFIX:
 			tok[n] = stxtok(&slice, " ", 1);
@@ -424,8 +424,10 @@ tokenize(spx *tok, size_t ntok, const spx buf)
 			break;
 		case TOK_ARG:
 			tok[n] = stxtok(&slice, ":", 1);
-			// Strip the space character.
-			tok[n].len -= 1;
+			// Strip the whitespace
+			for (size_t i = slice.len - 1; i <= 0; --i)
+				if (' ' == slice.mem[i])
+					--slice.len;
 			break;
 		case TOK_TEXT:
 			// Grab the remainder of the text.
