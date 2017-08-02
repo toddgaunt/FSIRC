@@ -39,7 +39,7 @@ all of the irc commands yet, there is a way to send 'raw' irc protocol to
 servers in case a command is not supported by the client yet:
 ``` bash
 echo '/r JOIN #mychannel' > /tmp/yorha/chat.freenode.net/in
-
+```
 
 ## Dependencies
 - C99 compliant compiler
