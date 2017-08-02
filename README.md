@@ -15,23 +15,24 @@ being the name of the irc server to connect to, like so:
 ``` bash
 ./yorha chat.freenode.net
 ```
-This will, by default, create a directory '/tmp/yorha/chat.freenode.net/' with
-a FIFO file name 'in' and an output file named 'out' inside of it.
+This will, by default, create a directory "/tmp/yorha/chat.freenode.net/" with
+a FIFO file name "in" and an output file named "out" inside of it.
 
 ## Sending commands to the client
 Yorha communicates directly through FIFO file communication. For example,
-joining a channel is as simple as writing text to the 'in' file:
+joining a channel is as simple as writing text to the "in" file:
 ``` bash
 echo '/j #mychannel' > /tmp/yorha/chat.freenode.net/in
+```
+This whill create a new channel directory under the path
+"/tmp/yorha/chat.freenode.net/#mychannel" with an "in" and an "out" file.
+Writing a 'me' message:
+``` bash
+echo '/m uses yorha irc client' > /tmp/yorha/chat.freenode.net/#mychannel/in
 ```
 Leaving a channel:
 ``` bash
 echo '/p #mychannel' > /tmp/yorha/chat.freenode.net/in
-```
-
-Writing a 'me' message:
-``` bash
-echo '/m uses yorha irc client' > /tmp/yorha/chat.freenode.net/in
 ```
 To overcome the limitations of my own laziness since I haven't programmed in
 all of the irc commands yet, there is a way to send 'raw' irc protocol to
