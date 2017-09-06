@@ -1,18 +1,15 @@
-# Program information
-VERSION = 0.0.1
+VERSION := 1.0.0
 
-# System paths.
-PREFIX = /usr/local
-BINPREFIX = ${PREFIX}/bin
-MANPREFIX = ${PREFIX}/share/man
-DOCPREFIX = ${PREFIX}/share/doc/
-VARPREFIX = ${PREFIX}/var
+# System paths
+PREFIX := /usr/local
+BINPREFIX := $(PREFIX)/bin
+INCLUDEPREFIX := $(PREFIX)/include
+LIBPREFIX := $(PREFIX)/lib
+MANPREFIX := $(PREFIX)/man
 
-# Linker configuration.
-LDFLAGS = -lstx
+# Linking flags
+LDFLAGS := -s
 
-# Compiler configuration.
-CFLAGS = -g -std=gnu99 -O0 -Wall -Wextra
-
-# Compiler
-CC = cc
+# C Compiler settings
+CC := cc 
+CFLAGS := -g -std=c99 -pedantic -O0 -Wall -Wextra

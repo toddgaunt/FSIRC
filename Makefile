@@ -1,44 +1,51 @@
+# see license file for copyright and license details.
+
+# Project configuration
 include config.mk
 
-TARGET = yorha
+LDFLAGS += -I.
 
-SRC_DIR = src
-BUILD_DIR = build
-DEBUG_DIR = debug
+MODULES := src
+LIBS := -lstx
+SRC := yorha.c
 
-SRC = $(notdir $(wildcard ${SRC_DIR}/*.c))
-OBJ = $(addprefix ${BUILD_DIR}/, ${SRC:.c=.o})
-DEBUG_OBJ = $(addprefix ${DEBUG_DIR}/, ${SRC:.c=.o})
+# Project modules
+include $(patsubst %, %/module.mk, $(MODULES))
 
-# Macro flags for injecting information into the program during compile time.
-MFLAGS = \
-       -DVERSION=\"${VERSION}\"\
-       -DPREFIX=\"${PREFIX}\"\
-       -DVARPREFIX=\"${VARPREFIX}\"\
-       -DPRGM_NAME=\"${TARGET}\"
+OBJ := \
+	$(patsubst %.c, %.o, \
+		$(filter %.c, $(SRC)))
 
-all: options ${TARGET}
+%.o: %.c config.mk
+	@printf "CC $<\n"
+	@$(CC) $(CFLAGS) $(LDFLAGS) -c -o $@ $<
+
+# Standard targets
+all: options yorha
 
 options: config.mk
-	@printf "${TARGET} build options:\n"
-	@printf "CFLAGS  = ${CFLAGS}\n"
-	@printf "LDFLAGS = ${LDFLAGS}\n"
-	@printf "CC      = ${CC}\n"
+	@printf -- "yorha build options:\n"
+	@printf -- "CFLAGS  = %s\n" "$(CFLAGS)"
+	@printf -- "LDFLAGS = %s\n" "$(LDFLAGS)"
+	@printf -- "CC      = %s\n" "$(CC)"
 
-${BUILD_DIR}/%.o: ${SRC_DIR}/%.c
-	@mkdir -p $(dir $@)
-	@printf "CC $@\n"
-	@${CC} ${CFLAGS} ${MFLAGS} -c -o $@ $< ${LDFLAGS}
-
-${OBJ}: config.mk
-
-${TARGET}: ${OBJ}
-	@printf "CC $@\n"
-	@${CC} ${CFLAGS} ${MFLAGS} -o $@ ${OBJ} ${LDFLAGS}
+dist: clean
+	#@printf "Creating dist tarball ... "
+	#@mkdir -p yorha-$(VERSION)
+	#TODO
+	#@cp -rf ??? yorha-$(VERSION)
+	#TODO
+	#@tar -cf yorha-$(VERSION).tar yorha-$(VERSION)
+	#@gzip yorha-$(VERSION).tar
+	#@rm -rf ${DIST}
+	#@printf "done.\n"
 
 clean:
-	@printf "Cleaning ... "
-	rm -f ${TARGET} ${OBJ}
-	@printf "done.\n"
+	@printf "Cleaning\n"
+	@rm -f $(OBJ) yorha
 
-.PHONY: all options clean dist install uninstall
+# Main target
+yorha: $(OBJ)
+	$(CC) -o $@ $(OBJ) $(LIBS)
+
+.PHONY: all options check clean dist install uninstall

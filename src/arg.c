@@ -196,12 +196,12 @@ opt_flag_callback(
 		const struct arg_option *optv
 		)
 {
-	for (size_t i = 0; i < optc; ++i) {
+	size_t i;
+
+	for (i = 0; i < optc; ++i) {
 		if (pp[0][0] != optv[i].flag)
 			continue;
-
 		++pp[0];
-
 		if (optv[i].default_arg) {
 			if ('\0' == pp[0][0]) {
 				++pp;
@@ -212,7 +212,6 @@ opt_flag_callback(
 					arg_usage(optc, optv);
 				}
 			}
-
 			optv[i].callback(optv[i].argc, optv[i].argv, pp[0]);
 			++pp;
 		} else {
@@ -222,13 +221,12 @@ opt_flag_callback(
 				optv[i].callback();
 			}
 		}
-
 		called[i] = true;
 		return pp;
 	}
-
 	fprintf(stderr, "invalid option \"-%c\"\n", pp[0][0]);
 	arg_usage(optc, optv);
+	return pp;
 }
 
 char **
