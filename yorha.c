@@ -41,7 +41,7 @@
 #define PREFIX "/usr/local"
 #endif
 
-#define MSG_INIT 512
+#define MSG_MAX 512
 
 /* Enums and Structures */
 /* Used in tokenize as indices for a token array. */
@@ -52,17 +52,6 @@ enum {
 	TOK_TEXT,
 	TOK_LAST
 };
-
-typedef struct {
-	int sockfd;
-	spx host;
-	stx port;
-	stx nickname;
-	stx realname;
-	Channels ch;
-	/* Message buffer */
-	stx buf;
-} IRConnection;
 
 /* Function Declarations */
 static void version();
@@ -107,15 +96,19 @@ readline(stx *sp, int fd)
  * Initial login to the IRC server.
  */
 void
-yorha_login(IRConnection *conn)
+yorha_login(const int sockfd, const spx nick, const spx real, const spx host)
 {
-	conn->buf.len = snprintf(conn->buf.mem, conn->buf.size,
+
+	size_t len;
+	char buf[MSG_MAX];
+
+	len = snprintf(buf, MSG_MAX,
 			"NICK %.*s\r\nUSER %.*s localhost %.*s :%.*s\r\n",
-			(int)conn->nickname.len, conn->nickname.mem,
-			(int)conn->nickname.len, conn->nickname.mem,
-			(int)conn->host.len, conn->host.mem, 
-			(int)conn->realname.len, conn->realname.mem);
-	write_spx(conn->sockfd, stxref(&conn->buf));
+			(int)nick.len, nick.mem,
+			(int)nick.len, nick.mem,
+			(int)host.len, host.mem, 
+			(int)real.len, real.mem);
+	write(sockfd, buf, len);
 }
 
 /**
@@ -158,78 +151,97 @@ tokenize(spx *tok, size_t ntok, const spx buf)
  * Process and incoming message from the IRC server connection.
  * TODO(todd): Refactor write calls into a single, buffered write call.
  */
-void
-proc_server_cmd(IRConnection *conn)
+bool
+proc_server_cmd(stx *reply, Channels *ch, spx buf)
 {
 	spx tok[TOK_LAST] = {0};
-	tokenize(tok, TOK_LAST, stxr(conn->buf));
+	tokenize(tok, TOK_LAST, buf);
 
 	spx cmd = tok[TOK_CMD];
 	if (stxcmp(cmd, (spx){4, "PING"})) {
-		write(conn->sockfd, "PONG", 4);
-		write_spx(conn->sockfd, tok[TOK_ARG]);
-		write(conn->sockfd, "\r\n", 2);
+		snprintf(reply->mem, reply->size,
+				"PONG %.*s\r\n",
+				(int)tok[TOK_ARG].len,
+				tok[TOK_ARG].mem);
+		return true;
 	} else if (stxcmp(cmd, (spx){4, "PART"})) {
-		channels_del(&conn->ch, tok[TOK_ARG]);
+		channels_del(ch, tok[TOK_ARG]);
 	} else if (stxcmp(cmd, (spx){4, "JOIN"})) {
-		channels_add(&conn->ch, tok[TOK_ARG]);
+		channels_add(ch, tok[TOK_ARG]);
 	} else if (stxcmp(cmd, (spx){7, "PRIVMSG"})) {
-		channels_log(tok[TOK_ARG], stxr(conn->buf));
+		channels_log(tok[TOK_ARG], buf);
 	} else {
-		channels_log(root, stxr(conn->buf));
+		channels_log(root, buf);
 	}
+	return false;
 }
 
 /**
  * Process a stx into a message to be sent to an IRC channel.
  * TODO(todd): Refactor write calls into a single, buffered write call.
  */
-void
-proc_client_cmd(IRConnection *conn, const spx name)
+bool
+proc_client_cmd(stx *reply, spx name, spx buf)
 {
 	size_t i;
 	spx slice;
-	spx buf = stxr(conn->buf);
 
 	if (buf.mem[0] != '/') {
 		LOGINFO("Sending message to \"%.*s\"", (int)name.len, name.mem);
-		write(conn->sockfd, "PRIVMSG ", 8);
-		write(conn->sockfd, name.mem, name.len);
-		write(conn->sockfd, " :", 2);
-		write(conn->sockfd, buf.mem, buf.len);
-		write(conn->sockfd, "\r\n", 2);
-	}
-	if (buf.mem[0] == '/' && buf.len > 1) {
+		snprintf(reply->mem, reply->size,
+				"PRIVMSG %.*s :%.*s\r\n", 
+				(int)name.len,
+				name.mem,
+				(int)buf.len,
+				buf.mem);
+	} else if (buf.mem[0] == '/' && buf.len > 1) {
 		/* Remove leading whitespace. */
 		for (i = 0; i < buf.len && buf.mem[i] != ' '; ++i);
 		slice = stxslice(buf, i, buf.len);
 		switch (buf.mem[1]) {
 		/* Join a channel */
 		case 'j':
-			write(conn->sockfd, "JOIN ", 5);
+			snprintf(reply->mem, reply->size,
+					"JOIN %.*s\r\n",
+					(int)slice.len,
+					slice.mem);
 			break;
 		/* Part from a channel */
 		case 'p': 
-			write(conn->sockfd, "PART", 4);
+			snprintf(reply->mem, reply->size,
+					"PART %.*s\r\n",
+					(int)slice.len,
+					slice.mem);
 			break;
 		/* Send a "me" message */
 		case 'm':
-			write(conn->sockfd, "ME", 2);
+			snprintf(reply->mem, reply->size,
+					"ME %.*s\r\n",
+					(int)slice.len,
+					slice.mem);
 			break;
 		/* Set status to "away" */
 		case 'a':
-			write(conn->sockfd, "AWAY", 4);
+			snprintf(reply->mem, reply->size,
+					"AWAY %.*s\r\n",
+					(int)slice.len,
+					slice.mem);
 			break;
 		/* Send raw IRC protocol */
 		case 'r':
+			snprintf(reply->mem, reply->size,
+					"%.*s\r\n",
+					(int)slice.len,
+					slice.mem);
 			break;
 		default: 
 			LOGERROR("Invalid command entered\n.");
-			return;
+			return false;
 		}
-		write(conn->sockfd, slice.mem, slice.len);
-		write(conn->sockfd, "\r\n", 2);
+	} else {
+		return false;
 	}
+	return true;
 }
 
 /**
@@ -252,54 +264,69 @@ setstx(size_t argc, struct stx *argv, const char *arg) {
  * Poll all open file descriptors for incoming messages, and act upon them.
  */
 static void
-yorha_poll(IRConnection *conn)
+yorha_poll(int sockfd)
 {
-	size_t i;
-	fd_set rd;
-	int maxfd;
-	int rv;
-	struct timeval tv;
+	stx reply = {0};
+	stx buf = {0};
+	Channels ch = {0};
 
-	FD_ZERO(&rd);
-	maxfd = conn->sockfd;
-	FD_SET(conn->sockfd, &rd);
-	for (i=0; i<conn->ch.len; ++i) {
-		if (maxfd < conn->ch.fds[i]) {
-			maxfd = conn->ch.fds[i];
+	/* Each tree begins with a root */
+	channels_add(&ch, root);
+	/* Initialize the buffer to the IRC protocal message length */
+	stxalloc(&buf, MSG_MAX);
+	stxalloc(&reply, MSG_MAX);
+	while (1) {
+		size_t i;
+		fd_set rd;
+		int maxfd;
+		int rv;
+		struct timeval tv;
+
+		FD_ZERO(&rd);
+		maxfd = sockfd;
+		FD_SET(sockfd, &rd);
+		for (i=0; i<ch.len; ++i) {
+			if (maxfd < ch.fds[i]) {
+				maxfd = ch.fds[i];
+			}
+			FD_SET(ch.fds[i], &rd);
 		}
-		FD_SET(conn->ch.fds[i], &rd);
-	}
 
-	tv.tv_sec = ping_timeout;
-	tv.tv_usec = 0;
-	rv = select(maxfd + 1, &rd, 0, 0, &tv);
+		tv.tv_sec = ping_timeout;
+		tv.tv_usec = 0;
+		rv = select(maxfd + 1, &rd, 0, 0, &tv);
 
-	if (rv < 0) {
-		LOGFATAL("Error running select().\n");
-	} else if (rv == 0) {
-		//TODO(todd): handle timeout with ping message.
-	}
-
-	/* Check for messages from remote host */
-	if (FD_ISSET(conn->sockfd, &rd)) {
-		if (0 > readline(&conn->buf, conn->sockfd)) {
-			LOGFATAL("Unable to read from %s: ", conn->host.mem);
-		} else {
-			/* TMP */
-			fprintf(stderr, "%.*s\n", (int)conn->buf.len, conn->buf.mem);
-			/* ENDTMP */
-			proc_server_cmd(conn);
+		if (rv < 0) {
+			LOGFATAL("Error running select().\n");
+		} else if (rv == 0) {
+			//TODO(todd): handle timeout with ping message.
 		}
-	}
 
-	for (i=0; i<conn->ch.len; ++i) {
-		if (FD_ISSET(conn->ch.fds[i], &rd)) {
-			if (0 > readline(&conn->buf, conn->ch.fds[i])) {
-				LOGFATAL("Unable to read from channel \"%.*s\"",
-					(int)conn->ch.names[i].len,
-					conn->ch.names[i].mem);
+		/* Check for messages from remote host */
+		if (FD_ISSET(sockfd, &rd)) {
+			if (0 > readline(&buf, sockfd)) {
+				LOGFATAL("Unable to read from socket");
 			} else {
-				proc_client_cmd(conn, stxr(conn->ch.names[i]));
+				/* TMP */
+				fprintf(stderr, "%.*s\n", (int)buf.len, buf.mem);
+				/* ENDTMP */
+				if (proc_server_cmd(&reply, &ch, stxr(buf)))
+					write_spx(sockfd, stxr(reply));
+			}
+		}
+
+		for (i=0; i<ch.len; ++i) {
+			if (FD_ISSET(ch.fds[i], &rd)) {
+				if (0 > readline(&buf, ch.fds[i])) {
+					LOGFATAL("Unable to read from channel \"%.*s\"",
+						(int)ch.names[i].len,
+						ch.names[i].mem);
+				} else {
+					if (proc_client_cmd(&reply,
+							stxr(ch.names[i]),
+							stxr(buf)))
+						write_spx(sockfd, stxr(reply));
+				}
 			}
 		}
 	}
@@ -308,10 +335,13 @@ yorha_poll(IRConnection *conn)
 int
 main(int argc, char **argv) 
 {
-	size_t tmp;
+	size_t tmp = 0;
 	/* IRC connection context. */
-	IRConnection conn = {0};
-	/* Runtime prefix to run in. */
+	int sockfd = 0;
+	spx host = {0};
+	stx port = {0};
+	stx nickname = {0};
+	stx realname = {0};
 	stx prefix = {0};
 	struct arg_option opt[7] = {
 		{
@@ -330,17 +360,17 @@ main(int argc, char **argv)
 			"Specify the runtime directory to use"
 		},
 		{
-			'n', "nickname", 1, &conn.nickname,
+			'n', "nickname", 1, &nickname,
 			setstx, default_nickname,
 			"Specify the nickname to login with"
 		},
 		{
-			'r', "realname", 1, &conn.realname,
+			'r', "realname", 1, &realname,
 			setstx, default_realname,
 			"Specify the realname to login with"
 		},
 		{
-			'p', "port", 1, &conn.port,
+			'p', "port", 1, &port,
 			setstx, default_port,
 			"Specify the port of the remote irc server"
 		},
@@ -354,12 +384,10 @@ main(int argc, char **argv)
 	if (argc < 2)
 		arg_usage(sizeof(opt) / sizeof(*opt), opt);
 	//TODO(todd): Implement this.
-	//argv = arg_sort(argv + 1);
+	argv = arg_sort(argv + 1);
 	argv = arg_parse(argv, sizeof(opt) / sizeof(*opt), opt);
 	if (!argv[0])
 		LOGFATAL("No host argument provided.\n");
-	/* Initialize the message buffer, connect, and login to IRC server. */
-	stxalloc(&conn.buf, MSG_INIT);
 	/* Append hostname to prefix and slice it */
 	tmp = prefix.len;
 	if (0 < stxensuresize(&prefix, tmp + strlen(argv[0]) + 2))
@@ -375,17 +403,13 @@ main(int argc, char **argv)
 		perror("");
 		return EXIT_FAILURE;
 	}
-	conn.host = stxslice(stxref(&prefix), tmp + 1, prefix.len);
+	host = stxslice(stxref(&prefix), tmp + 1, prefix.len);
 	/* Open the irc-server connection */
-	if (0 > tcpopen(&conn.sockfd, conn.host, stxref(&conn.port), connect))
+	if (0 > tcpopen(&sockfd, host, stxref(&port), connect))
 		LOGFATAL("Failed to connect to host \"%s\" on port \"%s\".\n",
-				conn.host.mem, conn.port.mem);
+				host.mem, port.mem);
 	LOGINFO("Successfully initialized.\n");
-	/* Root directory channel for representing default server channel. */
-	channels_add(&conn.ch, root);
-	yorha_login(&conn);
-	while (1) {
-		yorha_poll(&conn);
-	}
+	yorha_login(sockfd, stxr(nickname), stxr(realname), host);
+	yorha_poll(sockfd);
 	return 0;
 }
