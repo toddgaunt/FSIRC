@@ -20,11 +20,12 @@
 #include <time.h>
 #include <unistd.h>
 #include <libstx.h>
+#include <stdbool.h>
 
 #include "src/arg.h"
-#include "src/channels.h"
 #include "src/sys.h"
 #include "src/math.h"
+#include "src/channels.h"
 #include "src/log.h"
 #include "config.h"
 
@@ -40,9 +41,10 @@
 #define PREFIX "/usr/local"
 #endif
 
-#define MSG_MAX 512
+#define MSG_INIT 512
 
-// For tokenizing irc server messages.
+/* Enums and Structures */
+/* Used in tokenize as indices for a token array. */
 enum {
 	TOK_PREFIX = 0,
 	TOK_CMD,
@@ -58,10 +60,14 @@ typedef struct {
 	stx nickname;
 	stx realname;
 	Channels ch;
-	/* Message buffer. */
+	/* Message buffer */
 	stx buf;
 } IRConnection;
 
+/* Function Declarations */
+static void version();
+
+/* Global constants */
 const spx root = {1, "."};
 
 /**
@@ -72,36 +78,6 @@ version()
 {
 	fprintf(stderr, PRGM_NAME" version "VERSION"\n");
 	exit(-1);
-}
-
-/**
- * Recursively make directories down a fullpath.
- *
- * Return: 0 if directory path is fully created. -1 if mkdir fails.
- */
-int
-mkdirpath(const spx path)
-{
-	char tmp[path.len + 1];
-	size_t i;
-	tmp[path.len] = '\0';
-
-	memcpy(tmp, path.mem, path.len);
-	if('/' == tmp[path.len - 1])
-		tmp[path.len - 1] = '\0';
-	for (i=1; i < path.len; ++i) {
-		if('/' == tmp[i]) {
-			tmp[i] = '\0';
-			if (0 > mkdir(tmp, S_IRWXU))
-				if (EEXIST != errno)
-					return -1;
-			tmp[i] = '/';
-		}
-	}
-	if (0 > mkdir(tmp, S_IRWXU))
-		if (EEXIST != errno)
-			return -1;
-	return 0;
 }
 
 static int
@@ -122,7 +98,7 @@ readline(stx *sp, int fd)
 		sp->mem[sp->len] = ch;
 		sp->len += 1;
 	} while (ch != '\n' && sp->len <= sp->size);
-	// Removes line delimiters
+	/* Remove line delimiters as they make logging difficult */
 	stxrstrip(sp, "\r\n", 2);
 	return 0;
 }
@@ -142,6 +118,9 @@ yorha_login(IRConnection *conn)
 	write_spx(conn->sockfd, stxref(&conn->buf));
 }
 
+/**
+ * TODO(todd): Document this.
+ */
 void
 tokenize(spx *tok, size_t ntok, const spx buf)
 {
@@ -159,13 +138,13 @@ tokenize(spx *tok, size_t ntok, const spx buf)
 			break;
 		case TOK_ARG:
 			tok[n] = stxtok(&slice, ":", 1);
-			// Strip the whitespace
+			/* Strip the whitespace */
 			for (i = slice.len - 1; i <= 0; --i)
-				if (' ' == slice.mem[i])
+				if (isspace(slice.mem[i]))
 					--slice.len;
 			break;
 		case TOK_TEXT:
-			// Grab the remainder of the text.
+			/* Grab the remainder of the text */
 			tok[n] = slice;
 			break;
 		default:
@@ -221,27 +200,27 @@ proc_client_cmd(IRConnection *conn, const spx name)
 		write(conn->sockfd, "\r\n", 2);
 	}
 	if (buf.mem[0] == '/' && buf.len > 1) {
-		// Remove leading whitespace.
+		/* Remove leading whitespace. */
 		for (i = 0; i < buf.len && buf.mem[i] != ' '; ++i);
 		slice = stxslice(buf, i, buf.len);
 		switch (buf.mem[1]) {
-		// Join a channel.
+		/* Join a channel */
 		case 'j':
 			write(conn->sockfd, "JOIN ", 5);
 			break;
-		// Part from a channel.
+		/* Part from a channel */
 		case 'p': 
 			write(conn->sockfd, "PART", 4);
 			break;
-		// Send a "me" message.
+		/* Send a "me" message */
 		case 'm':
 			write(conn->sockfd, "ME", 2);
 			break;
-		// Set status to "away".
+		/* Set status to "away" */
 		case 'a':
 			write(conn->sockfd, "AWAY", 4);
 			break;
-		// Send raw IRC protocol.
+		/* Send raw IRC protocol */
 		case 'r':
 			break;
 		default: 
@@ -301,14 +280,14 @@ yorha_poll(IRConnection *conn)
 		//TODO(todd): handle timeout with ping message.
 	}
 
-	// Check for messages from remote host.
+	/* Check for messages from remote host */
 	if (FD_ISSET(conn->sockfd, &rd)) {
 		if (0 > readline(&conn->buf, conn->sockfd)) {
 			LOGFATAL("Unable to read from %s: ", conn->host.mem);
 		} else {
-			// TMP
+			/* TMP */
 			fprintf(stderr, "%.*s\n", (int)conn->buf.len, conn->buf.mem);
-			// ENDTMP
+			/* ENDTMP */
 			proc_server_cmd(conn);
 		}
 	}
@@ -380,7 +359,7 @@ main(int argc, char **argv)
 	if (!argv[0])
 		LOGFATAL("No host argument provided.\n");
 	/* Initialize the message buffer, connect, and login to IRC server. */
-	stxalloc(&conn.buf, MSG_MAX);
+	stxalloc(&conn.buf, MSG_INIT);
 	/* Append hostname to prefix and slice it */
 	tmp = prefix.len;
 	if (0 < stxensuresize(&prefix, tmp + strlen(argv[0]) + 2))

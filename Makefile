@@ -3,6 +3,10 @@
 # Project configuration
 include config.mk
 
+CFLAGS += -D_POSIX_C_SOURCE=200112L \
+	  -DPRGM_NAME=\"yorha\" \
+	  -DVERSION=\"$(VERSION)\" \
+	  -DPREFIX=\"$(PREFIX)\"
 LDFLAGS += -I.
 
 MODULES := src

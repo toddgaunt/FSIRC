@@ -1,8 +1,4 @@
-#ifndef LIBARG_H
-#define LIBARG_H
-
-#include <stdbool.h>
-
+/* See LICENSE file for copyright and license details */
 struct arg_option {
 	const char flag;
 	const char *name;
@@ -33,5 +29,3 @@ void arg_setdouble(const size_t argc, double *argv, const char *str);
 
 char **arg_sort(char **argv);
 char **arg_parse(char **argv, const size_t optc, const struct arg_option *optv);
-
-#endif

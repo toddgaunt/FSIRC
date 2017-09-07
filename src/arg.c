@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdbool.h>
 
 #include "arg.h"
 
@@ -186,6 +187,7 @@ opt_name_callback(
 
 	fprintf(stderr, "invalid option \"--%s\"\n", pp[0]);
 	arg_usage(optc, optv);
+	return pp;
 }
 
 static char **

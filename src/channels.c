@@ -1,6 +1,30 @@
+/* See LICENSE file for copyright and license details */
+#include <arpa/inet.h> 
+#include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <malloc.h>
+#include <netdb.h>
+#include <ctype.h>
+#include <signal.h>
+#include <stdbool.h>
+#include <stdio.h> 
 #include <stdlib.h>
+#include <string.h>
+#include <sys/select.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <sys/un.h>
+#include <time.h>
+#include <unistd.h>
+#include <libstx.h>
 
-#include "channels.h"
+#include "src/channels.h"
+#include "src/log.h"
+#include "src/math.h"
+#include "src/sys.h"
 
 int channels_add(Channels *ch, const spx name);
 int channels_del(Channels *ch, const spx name);
@@ -41,7 +65,7 @@ channels_add(Channels *ch, const spx name)
 	void *tmp;
 
 	if (ch->len >= ch->size) {
-		nextsize = nearpowerof2(ch->size + 1);
+		nextsize = npow2(ch->size + 1);
 		diff = nextsize - ch->size;
 		tmp = realloc(ch->fds,
 				sizeof(*ch->fds) * nextsize
@@ -108,9 +132,9 @@ channels_log(const spx name, const spx msg)
 	strcpy(tmp + name.len, "/out");
 	if (!(fp = fopen(tmp, "a"))) {
 		LOGERROR("Output file \"%s\" failed to open.\n", tmp);
-		return;
+	} else {
+		logtime(fp);
+		fprintf(fp, " %.*s\n", (int)msg.len, msg.mem);
+		fclose(fp);
 	}
-	logtime(fp);
-	fprintf(fp, " %.*s\n", (int)msg.len, msg.mem);
-	fclose(fp);
 }

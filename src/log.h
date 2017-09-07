@@ -15,15 +15,4 @@
 /**
  * Log the current time in month-day-year format to the given stream.
  */
-void
-logtime(FILE *fp)
-{
-	char buf[16];
-	time_t t;
-	const struct tm *tm;
-
-	t = time(NULL);
-	tm = localtime(&t);
-	strftime(buf, sizeof(buf), "%m %d %T", tm);
-	fprintf(fp, buf);
-}
+void logtime(FILE *fp);

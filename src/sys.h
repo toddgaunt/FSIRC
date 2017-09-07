@@ -9,5 +9,11 @@ void daemonize();
  * parameter is either the connect() or bind() fucntion depending on the
  * desired behavior.
  */
-int tcpopen(int *sockfd, const spx host, const spx port, 
-		int (*opensocket)(int, const struct sockaddr *, socklen_t));
+int tcpopen(
+		int *sockfd,
+		const spx host,
+		const spx port, 
+		int (*opensocket)(int, const struct sockaddr *, socklen_t)
+		);
+
+int mkdirpath(const spx path);

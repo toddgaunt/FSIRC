@@ -1,12 +1,14 @@
 /* See LICENSE file for copyright and license details */
-#include <fcntl.h>
+#include <string.h>
+#include <stdlib.h>
 #include <libstx.h>
 #include <netdb.h>
-#include <stdlib.h>
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <errno.h>
 
 #include "src/sys.h"
 
@@ -57,7 +59,10 @@ daemonize()
 }
 
 int
-tcpopen(int *sockfd, const spx host, const spx port, 
+tcpopen(
+		int *sockfd,
+		const spx host,
+		const spx port, 
 		int (*opensocket)(int, const struct sockaddr *, socklen_t))
 {
 	struct addrinfo hints;
@@ -103,5 +108,35 @@ tcpopen(int *sockfd, const spx host, const spx port,
 	}
 
 	freeaddrinfo(res);
+	return 0;
+}
+
+/**
+ * Recursively make directories down a fullpath.
+ *
+ * Return: 0 if directory path is fully created. -1 if mkdir fails.
+ */
+int
+mkdirpath(const spx path)
+{
+	char tmp[path.len + 1];
+	size_t i;
+	tmp[path.len] = '\0';
+
+	memcpy(tmp, path.mem, path.len);
+	if('/' == tmp[path.len - 1])
+		tmp[path.len - 1] = '\0';
+	for (i=1; i < path.len; ++i) {
+		if('/' == tmp[i]) {
+			tmp[i] = '\0';
+			if (0 > mkdir(tmp, S_IRWXU))
+				if (EEXIST != errno)
+					return -1;
+			tmp[i] = '/';
+		}
+	}
+	if (0 > mkdir(tmp, S_IRWXU))
+		if (EEXIST != errno)
+			return -1;
 	return 0;
 }
