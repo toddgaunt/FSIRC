@@ -62,18 +62,18 @@ channels_add(Channels *ch, const spx name)
 	size_t diff;
 	size_t nextsize;
 	stx *sp;
-	void *tmp;
+	void *region;
 
 	if (ch->len >= ch->size) {
 		nextsize = npow2(ch->size + 1);
 		diff = nextsize - ch->size;
-		tmp = realloc(ch->fds,
+		region = realloc(ch->fds,
 				sizeof(*ch->fds) * nextsize
 				+ sizeof(*ch->names) * nextsize);
-		if (!tmp)
+		if (!region)
 				return -1;
-		ch->fds = tmp;
-		ch->names = (stx *)ch->fds + nextsize;
+		ch->fds = region;
+		ch->names = (stx *)(ch->fds + nextsize);
 		// Zero initialize the added memory.
 		memset(&ch->fds[ch->size], 0, sizeof(*ch->fds) * diff);
 		memset(&ch->names[ch->size], 0, sizeof(*ch->names) * diff);

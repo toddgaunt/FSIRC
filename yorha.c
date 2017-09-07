@@ -149,13 +149,12 @@ tokenize(spx *tok, size_t ntok, const spx buf)
 
 /**
  * Process and incoming message from the IRC server connection.
- * TODO(todd): Refactor write calls into a single, buffered write call.
  */
 bool
-proc_server_cmd(stx *reply, Channels *ch, spx buf)
+proc_server_cmd(stx *reply, Channels *ch, spx msg)
 {
 	spx tok[TOK_LAST] = {0};
-	tokenize(tok, TOK_LAST, buf);
+	tokenize(tok, TOK_LAST, msg);
 
 	spx cmd = tok[TOK_CMD];
 	if (stxcmp(cmd, (spx){4, "PING"})) {
@@ -169,36 +168,35 @@ proc_server_cmd(stx *reply, Channels *ch, spx buf)
 	} else if (stxcmp(cmd, (spx){4, "JOIN"})) {
 		channels_add(ch, tok[TOK_ARG]);
 	} else if (stxcmp(cmd, (spx){7, "PRIVMSG"})) {
-		channels_log(tok[TOK_ARG], buf);
+		channels_log(tok[TOK_ARG], msg);
 	} else {
-		channels_log(root, buf);
+		channels_log(root, msg);
 	}
 	return false;
 }
 
 /**
  * Process a stx into a message to be sent to an IRC channel.
- * TODO(todd): Refactor write calls into a single, buffered write call.
  */
 bool
-proc_client_cmd(stx *reply, spx name, spx buf)
+proc_client_cmd(stx *reply, spx name, spx msg)
 {
 	size_t i;
 	spx slice;
 
-	if (buf.mem[0] != '/') {
+	if (msg.mem[0] != '/') {
 		LOGINFO("Sending message to \"%.*s\"", (int)name.len, name.mem);
 		snprintf(reply->mem, reply->size,
 				"PRIVMSG %.*s :%.*s\r\n", 
 				(int)name.len,
 				name.mem,
-				(int)buf.len,
-				buf.mem);
-	} else if (buf.mem[0] == '/' && buf.len > 1) {
+				(int)msg.len,
+				msg.mem);
+	} else if (msg.mem[0] == '/' && msg.len > 1) {
 		/* Remove leading whitespace. */
-		for (i = 0; i < buf.len && buf.mem[i] != ' '; ++i);
-		slice = stxslice(buf, i, buf.len);
-		switch (buf.mem[1]) {
+		for (i = 0; i < msg.len && msg.mem[i] != ' '; ++i);
+		slice = stxslice(msg, i, msg.len);
+		switch (msg.mem[1]) {
 		/* Join a channel */
 		case 'j':
 			snprintf(reply->mem, reply->size,
@@ -272,7 +270,7 @@ yorha_poll(int sockfd)
 
 	/* Each tree begins with a root */
 	channels_add(&ch, root);
-	/* Initialize the buffer to the IRC protocal message length */
+	/* Initialize the string buffers to IRC maximum message size */
 	stxalloc(&buf, MSG_MAX);
 	stxalloc(&reply, MSG_MAX);
 	while (1) {
