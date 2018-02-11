@@ -8,8 +8,10 @@ LIBPREFIX := $(PREFIX)/lib
 MANPREFIX := $(PREFIX)/man
 
 # Linking flags
-LDFLAGS := -s
+LDFLAGS :=
+LDFLAGS_DEBUG :=
 
 # C Compiler settings
-CC := cc 
-CFLAGS := -g -std=c99 -pedantic -O0 -Wall -Wextra
+CC := cc
+CFLAGS := -O2 -Iinclude -std=c11 -pedantic -Wall -Wextra
+CFLAGS_DEBUG := $(CFLAGS) -g -O0

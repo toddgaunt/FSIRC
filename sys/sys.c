@@ -61,8 +61,8 @@ daemonize()
 int
 tcpopen(
 		int *sockfd,
-		const spx host,
-		const spx port, 
+		char const *host,
+		char const *port, 
 		int (*opensocket)(int, const struct sockaddr *, socklen_t))
 {
 	struct addrinfo hints;
@@ -73,20 +73,9 @@ tcpopen(
 	hints.ai_flags = AI_CANONNAME;
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
-
-	// Create null-terminated strings for legacy functions.
-	char tmphost[host.len + 1];
-	char tmpport[port.len + 1];
-	memcpy(tmphost, host.mem, host.len);
-	memcpy(tmpport, port.mem, port.len);
-	tmphost[host.len] = '\0';
-	tmpport[port.len] = '\0';
-
 	// Get the ip address of 'host'.
-	if (getaddrinfo(tmphost, tmpport, &hints, &res)) {
+	if (getaddrinfo(host, port, &hints, &res))
 		return -1;
-	}
-	
 	// Attempt to connect to any available address.
 	for (ptr=res; ptr; ptr=ptr->ai_next) {
 		if (0 > (*sockfd = socket(ptr->ai_family, ptr->ai_socktype,
@@ -99,14 +88,12 @@ tcpopen(
 		// Successful connection.
 		break;
 	}
-
 	// No connection was made
 	if (!ptr) {
 		if (res)
 			freeaddrinfo(res);
 		return -1;
 	}
-
 	freeaddrinfo(res);
 	return 0;
 }
@@ -117,16 +104,18 @@ tcpopen(
  * Return: 0 if directory path is fully created. -1 if mkdir fails.
  */
 int
-mkdirpath(const spx path)
+mkdirpath(struct strbuf const *path)
 {
-	char tmp[path.len + 1];
 	size_t i;
-	tmp[path.len] = '\0';
+	size_t len;
+	char tmp[path->len + 1];
 
-	memcpy(tmp, path.mem, path.len);
-	if('/' == tmp[path.len - 1])
-		tmp[path.len - 1] = '\0';
-	for (i=1; i < path.len; ++i) {
+	len = path->len;
+	memcpy(tmp, path->mem, path->len);
+	tmp[path->len] = '\0';
+	if('/' == tmp[len - 1])
+		tmp[len - 1] = '\0';
+	for (i = 1; i < len; ++i) {
 		if('/' == tmp[i]) {
 			tmp[i] = '\0';
 			if (0 > mkdir(tmp, S_IRWXU))

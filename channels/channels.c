@@ -19,17 +19,16 @@
 #include <sys/un.h>
 #include <time.h>
 #include <unistd.h>
-#include <libstx.h>
 
-#include "src/channels.h"
-#include "src/log.h"
-#include "src/math.h"
-#include "src/sys.h"
+#include "channels.h"
+#include "log.h"
+#include "strbuf.h"
+#include "sys.h"
 
-int channels_add(Channels *ch, const spx name);
-int channels_del(Channels *ch, const spx name);
-void channels_log(const spx name, const spx msg);
-static int channels_open_fifo(const spx path);
+int channels_add(struct channels *ch, struct strbuf const *name);
+int channels_remove(struct channels *ch, struct strbuf const *name);
+void channels_log(struct strbuf const *name, struct strbuf const *msg);
+static int channels_open_fifo(struct strbuf const *path);
 
 /**
  * Opens a fifo file named "in" at the end of the given path.
@@ -37,7 +36,7 @@ static int channels_open_fifo(const spx path);
  * Return: The open fifo file descriptor. -1 if an error opening it occured.
  */
 static int
-channels_open_fifo(const spx path)
+channels_open_fifo(struct strbuf const *path)
 {
 	int fd = -1;
 	char tmp[path.len + sizeof("/in")];
@@ -57,11 +56,11 @@ channels_open_fifo(const spx path)
  * Add a channel to a Channels struct, resize it if necessary.
  */
 int
-channels_add(Channels *ch, const spx name)
+channels_add(struct channels *ch, struct strbuf const *path)
 {
 	size_t diff;
 	size_t nextsize;
-	stx *sp;
+	struct strbuf *sp;
 	void *region;
 
 	if (ch->len >= ch->size) {
@@ -73,25 +72,19 @@ channels_add(Channels *ch, const spx name)
 		if (!region)
 				return -1;
 		ch->fds = region;
-		ch->names = (stx *)(ch->fds + nextsize);
+		ch->names = (struct strbuf *)(ch->fds + nextsize);
 		// Zero initialize the added memory.
 		memset(&ch->fds[ch->size], 0, sizeof(*ch->fds) * diff);
 		memset(&ch->names[ch->size], 0, sizeof(*ch->names) * diff);
 		ch->size = nextsize;
 	}
-	sp = &ch->names[ch->len];
-	if (0 > stxensuresize(sp, name.len)) {
-		LOGERROR("Allocation of path buffer for channel \"%.*s\" failed.\n",
-				(int)name.len, name.mem);
+	sb_cpy_sb(&ch->paths[ch->len], &name);
+	if (0 > mkdirpath(&ch->paths[ch->len])) {
+		LOGERROR("Directory creation for path \"%s\" failed.\n",
+				ch->paths[ch->len].mem);
 		return -1;
 	}
-	stxcpy_spx(sp, name);
-	if (0 > mkdirpath(stxref(sp))) {
-		LOGERROR("Directory creation for path \"%.*s\" failed.\n",
-				(int)sp->len, sp->mem);
-		return -1;
-	}
-	if (0 > (ch->fds[ch->len] = channels_open_fifo(stxref(sp))))
+	if (0 > (ch->fds[ch->len] = channels_open_fifo(&ch->paths[ch->len])))
 		return -1;
 	ch->len += 1;
 	return 0;
@@ -101,7 +94,7 @@ channels_add(Channels *ch, const spx name)
  * Remove a channel from a Channels struct.
  */
 int
-channels_del(Channels *ch, const spx name)
+channels_remove(struct channels *ch, struct strbuf const *path)
 {
 	size_t i;
 
@@ -123,18 +116,19 @@ channels_del(Channels *ch, const spx name)
  * Log to the output file with the given channel name.
  */
 void
-channels_log(const spx name, const spx msg)
+channels_log(struct strbuf const *path, struct strbuf const *msg)
 {
 	FILE *fp;
-	char tmp[name.len + sizeof("/out")];
+	struct strbuf tmp = SB_INIT;
 
-	memcpy(tmp, name.mem, name.len);
-	strcpy(tmp + name.len, "/out");
-	if (!(fp = fopen(tmp, "a"))) {
-		LOGERROR("Output file \"%s\" failed to open.\n", tmp);
+	sb_cpy_sb(&tmp, path);
+	sb_cpy_str(&tmp, "/out");
+	if (!(fp = fopen(tmp.mem, "a"))) {
+		LOGERROR("Output file \"%s\" failed to open.\n", tmp.mem);
 	} else {
 		logtime(fp);
 		fprintf(fp, " %.*s\n", (int)msg.len, msg.mem);
 		fclose(fp);
 	}
+	sb_release(&tmp);
 }

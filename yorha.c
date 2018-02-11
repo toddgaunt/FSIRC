@@ -1,12 +1,13 @@
 /* See LICENSE file for copyright and license details */
 #include <arpa/inet.h> 
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <malloc.h>
 #include <netdb.h>
-#include <ctype.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdbool.h>
 #include <stdio.h> 
 #include <stdlib.h>
@@ -19,15 +20,11 @@
 #include <sys/un.h>
 #include <time.h>
 #include <unistd.h>
-#include <libstx.h>
-#include <stdbool.h>
 
-#include "src/arg.h"
-#include "src/sys.h"
-#include "src/math.h"
-#include "src/channels.h"
-#include "src/log.h"
+#include "channels.h"
+#include "arg.h"
 #include "config.h"
+#include "strbuf.h"
 
 #ifndef PRGM_NAME
 #define PRGM_NAME "NULL"
@@ -43,6 +40,20 @@
 
 #define MSG_MAX 512
 
+/* Logging macros */
+#define LOGINFO(...)\
+	do {logtime(stderr);\
+	fprintf(stderr, " "PRGM_NAME": info: "__VA_ARGS__);} while (0)
+
+#define LOGERROR(...)\
+	do {logtime(stderr);\
+	fprintf(stderr, " "PRGM_NAME": error: "__VA_ARGS__);} while (0)
+
+#define LOGFATAL(...)\
+	do {logtime(stderr);\
+	fprintf(stderr, " "PRGM_NAME": fatal: "__VA_ARGS__);\
+	exit(EXIT_FAILURE);} while (0)
+
 /* Enums and Structures */
 /* Used in tokenize as indices for a token array. */
 enum {
@@ -54,10 +65,117 @@ enum {
 };
 
 /* Function Declarations */
+void login(const int sockfd, struct strbuf const *nick,
+		struct strbuf const *real,
+		struct strbuf const *host);
+void logtime(FILE *fp);
+static void poll_fds(int sockfd);
+bool proc_server_cmd(struct strbuf *reply, Channels *ch, Ustr msg);
+bool proc_client_cmd(struct strbuf *reply, Ustr name, Ustr msg);
+static int readline(struct strbuf *sp, int fd);
+void tokenize(Ustr *tok, size_t ntok, const Ustr buf);
 static void version();
+static int write_Ustr(int sockfd, const Ustr sp);
 
 /* Global constants */
-const spx root = {1, "."};
+const Ustr root = {1, "."};
+
+/* Display a usage message and then exit */
+static void
+usage(size_t optc, ArgOption const *optv)
+{
+	arg_print_usage(optc, optv);
+	fprintf(stderr, " host\n");
+	exit(EXIT_FAILURE);
+}
+
+/* Display a help message and then exit */
+static void
+help(size_t optc, ArgOption const *optv)
+{
+	arg_print_usage(optc, optv);
+	fprintf(stderr, " host\n");
+	arg_printhelp(optc, optv);
+	exit(EXIT_FAILURE);
+}
+
+/* Create a new strbuf from a C string */
+void
+set_strbuf(struct strbuf *dest, char const *str)
+{
+	sb_init(dest);
+	sb_cat_str(dest, str);
+}
+
+int
+main(int argc, char **argv) 
+{
+	size_t tmp;
+	/* IRC connection context. */
+	int sockfd;
+	struct strbuf host = SB_INIT;
+	struct strbuf port = SB_INIT;
+	struct strbuf nickname = SB_INIT;
+	struct strbuf realname = SB_INIT;
+	struct strbuf prefix = SB_INIT;
+	struct arg_option opt[6] = {
+		{
+			'v', "version", 0, NULL,
+			version, NULL,
+			"Show the program version and exit"
+		},
+		{
+			'd', "directory", 1, &prefix,
+			set_strbuf, default_prefix,
+			"Specify the runtime directory to use"
+		},
+		{
+			'n', "nickname", 1, &nickname,
+			set_strbuf, default_nickname,
+			"Specify the nickname to login with"
+		},
+		{
+			'r', "realname", 1, &realname,
+			set_strbuf, default_realname,
+			"Specify the realname to login with"
+		},
+		{
+			'p', "port", 1, &port,
+			set_strbuf, default_port,
+			"Specify the port of the remote irc server"
+		},
+		{
+			'D', "daemonize", 0, NULL,
+			daemonize, NULL,
+			"Allow the program to daemonize"
+		},
+	};
+
+	if (argc < 2)
+		arg_usage(sizeof(opt) / sizeof(*opt), opt);
+	argv = arg_parse(argv + 1, sizeof(opt) / sizeof(*opt), opt);
+	if (!argv[0])
+		LOGFATAL("No host argument provided.\n");
+	/* Append hostname to prefix and slice it */
+	tmp = prefix.len;
+	sb_cat_str(&prefix, "/");
+	sb_cat_str(&prefix, argv[0]);
+	/* Change to the supplied prefix */
+	if (0 > mkdirpath(prefix))
+		return EXIT_FAILURE;
+	LOGINFO("Root directory created.\n");
+	if (0 > chdir(prefix.mem))
+		return EXIT_FAILURE;
+	sb_slice(&host, &prefix, tmp + 1, prefix.len);
+	/* Open the irc-server connection */
+	if (0 > tcpopen(&sockfd, host, Ustringref(&port), connect))
+		LOGFATAL("Could not connect to host \"%s\" on port \"%s\".\n",
+				host.mem, port.mem);
+	LOGINFO("Successfully initialized.\n");
+	login(sockfd, nickname.mem, realname.mem, host.mem);
+	poll_fds(sockfd);
+	return 0;
+}
 
 /**
  * Display program version and then exit.
@@ -70,13 +188,14 @@ version()
 }
 
 static int
-write_spx(int sockfd, const spx sp)
+write_sb(int sockfd, struct strbuf const *buf)
 {
-	return write(sockfd, sp.mem, sp.len);
+	//TODO(todd): Split up buffers larger than MSG_MAX
+	return write(sockfd, buf.mem, buf.len);
 }
 
 static int
-readline(stx *sp, int fd)
+readline(struct strbuf *sp, int fd)
 {
 	char ch;
 
@@ -88,7 +207,7 @@ readline(stx *sp, int fd)
 		sp->len += 1;
 	} while (ch != '\n' && sp->len <= sp->size);
 	/* Remove line delimiters as they make logging difficult */
-	stxrstrip(sp, "\r\n", 2);
+	sb_rstrip(sp, "\r\n", 2);
 	return 0;
 }
 
@@ -96,78 +215,59 @@ readline(stx *sp, int fd)
  * Initial login to the IRC server.
  */
 void
-yorha_login(const int sockfd, const spx nick, const spx real, const spx host)
+login(const int sockfd, struct strbuf const *nick, struct strbuf const *real, struct strbuf const *host)
 {
 
 	size_t len;
-	char buf[MSG_MAX];
+	struct strbuf buf = SB_INIT;
 
-	len = snprintf(buf, MSG_MAX,
-			"NICK %.*s\r\nUSER %.*s localhost %.*s :%.*s\r\n",
-			(int)nick.len, nick.mem,
-			(int)nick.len, nick.mem,
-			(int)host.len, host.mem, 
-			(int)real.len, real.mem);
-	write(sockfd, buf, len);
+	//TODO(todd): Error handling
+	sb_cat_sb(&buf, SB_LIT("NICK "));
+	sb_cat_sb(&buf, nick);
+	sb_cat_sb(&buf, SB_LIT("\r\nUSER "));
+	sb_cat_sb(&buf, nick);
+	sb_cat_sb(&buf, SB_LIT(" localhost "));
+	sb_cat_sb(&buf, host);
+	sb_cat_sb(&buf, SB_LIT(" :"));
+	sb_cat_sb(&buf, real);
+	sb_cat_sb(&buf, SB_LIT("\r\n"));
+	write_sb(sockfd, USTR(buf));
 }
 
-/**
- * TODO(todd): Document this.
- */
+/* Log the time to a file */
 void
-tokenize(spx *tok, size_t ntok, const spx buf)
+logtime(FILE *fp)
 {
-	size_t i;
-	size_t n;
-	spx slice = stxslice(buf, 0, buf.len);
+	char buf[16];
+	time_t t;
+	const struct tm *tm;
 
-	for (n = (slice.mem[0] == ':' ? 0 : 1); n < ntok; ++n) {
-		switch (n) {
-		case TOK_PREFIX:
-			tok[n] = stxtok(&slice, " ", 1);
-			/* Remove the leading ':' character */
-			tok[n].len -= 1;
-			tok[n].mem += 1;
-			break;
-		case TOK_ARG:
-			tok[n] = stxtok(&slice, ":", 1);
-			/* Strip the whitespace */
-			for (i = slice.len - 1; i <= 0; --i)
-				if (isspace(slice.mem[i]))
-					--slice.len;
-			break;
-		case TOK_TEXT:
-			/* Grab the remainder of the text */
-			tok[n] = slice;
-			break;
-		default:
-			tok[n] = stxtok(&slice, " ", 1);
-			break;
-		}
-	}
+	t = time(NULL);
+	tm = localtime(&t);
+	strftime(buf, sizeof(buf), "%m %d %T", tm);
+	fprintf(fp, buf);
 }
 
 /**
  * Process and incoming message from the IRC server connection.
  */
 bool
-proc_server_cmd(stx *reply, Channels *ch, spx msg)
+proc_server_cmd(struct strbuf *reply, Channels *ch, Ustr msg)
 {
-	spx tok[TOK_LAST] = {0};
+	struct strbuf tok[TOK_LAST];
 	tokenize(tok, TOK_LAST, msg);
 
-	spx cmd = tok[TOK_CMD];
-	if (stxcmp(cmd, (spx){4, "PING"})) {
+	if (sb_eq(&tok[TOK_CMD], &SB_LIT("PING"))) {
 		snprintf(reply->mem, reply->size,
 				"PONG %.*s\r\n",
 				(int)tok[TOK_ARG].len,
 				tok[TOK_ARG].mem);
 		return true;
-	} else if (stxcmp(cmd, (spx){4, "PART"})) {
+	} else if (sb_eq(tok[TOK_CMD].mem, &SB_LIT("PART"))) {
 		channels_del(ch, tok[TOK_ARG]);
-	} else if (stxcmp(cmd, (spx){4, "JOIN"})) {
+	} else if (sb_eq(tok[TOK_CMD].mem, &SB_LIT("JOIN"))) {
 		channels_add(ch, tok[TOK_ARG]);
-	} else if (stxcmp(cmd, (spx){7, "PRIVMSG"})) {
+	} else if (sb_eq(tok[TOK_CMD].mem, &SB_LIT("PRIVMSG"))) {
 		channels_log(tok[TOK_ARG], msg);
 	} else {
 		channels_log(root, msg);
@@ -176,13 +276,13 @@ proc_server_cmd(stx *reply, Channels *ch, spx msg)
 }
 
 /**
- * Process a stx into a message to be sent to an IRC channel.
+ * Process a Ustring into a message to be sent to an IRC channel.
  */
 bool
-proc_client_cmd(stx *reply, spx name, spx msg)
+proc_client_cmd(struct strbuf *reply, Ustr name, Ustr msg)
 {
 	size_t i;
-	spx slice;
+	Ustr slice;
 
 	if (msg.mem[0] != '/') {
 		LOGINFO("Sending message to \"%.*s\"", (int)name.len, name.mem);
@@ -195,7 +295,7 @@ proc_client_cmd(stx *reply, spx name, spx msg)
 	} else if (msg.mem[0] == '/' && msg.len > 1) {
 		/* Remove leading whitespace. */
 		for (i = 0; i < msg.len && msg.mem[i] != ' '; ++i);
-		slice = stxslice(msg, i, msg.len);
+		slice = Ustringslice(msg, i, msg.len);
 		switch (msg.mem[1]) {
 		/* Join a channel */
 		case 'j':
@@ -243,36 +343,20 @@ proc_client_cmd(stx *reply, spx name, spx msg)
 }
 
 /**
- * Function used as an argument parsing callback function.
- */
-void
-setstx(size_t argc, struct stx *argv, const char *arg) {
-	size_t i;
-
-	for (i=0; i<argc; ++i) {
-		if (0 < stxensuresize(&argv[i], strlen(arg) + 1)) {
-			LOGFATAL("Allocation of argument string failed.\n");
-		}
-
-		stxterm(stxcpy_str(&argv[i], arg));
-	}
-}
-
-/**
  * Poll all open file descriptors for incoming messages, and act upon them.
  */
 static void
-yorha_poll(int sockfd)
+poll_fds(int sockfd)
 {
-	stx reply = {0};
-	stx buf = {0};
+	struct strbuf reply = SB_INIT;
+	struct strbuf buf = SB_INIT;
 	Channels ch = {0};
 
 	/* Each tree begins with a root */
 	channels_add(&ch, root);
 	/* Initialize the string buffers to IRC maximum message size */
-	stxalloc(&buf, MSG_MAX);
-	stxalloc(&reply, MSG_MAX);
+	ustr_alloc(&buf, MSG_MAX + 1);
+	ustr_alloc(&reply, MSG_MAX + 1);
 	while (1) {
 		size_t i;
 		fd_set rd;
@@ -283,23 +367,19 @@ yorha_poll(int sockfd)
 		FD_ZERO(&rd);
 		maxfd = sockfd;
 		FD_SET(sockfd, &rd);
-		for (i=0; i<ch.len; ++i) {
-			if (maxfd < ch.fds[i]) {
+		for (i = 0; i < ch.len; ++i) {
+			if (maxfd < ch.fds[i])
 				maxfd = ch.fds[i];
-			}
 			FD_SET(ch.fds[i], &rd);
 		}
-
 		tv.tv_sec = ping_timeout;
 		tv.tv_usec = 0;
 		rv = select(maxfd + 1, &rd, 0, 0, &tv);
-
 		if (rv < 0) {
 			LOGFATAL("Error running select().\n");
 		} else if (rv == 0) {
 			//TODO(todd): handle timeout with ping message.
 		}
-
 		/* Check for messages from remote host */
 		if (FD_ISSET(sockfd, &rd)) {
 			if (0 > readline(&buf, sockfd)) {
@@ -308,12 +388,11 @@ yorha_poll(int sockfd)
 				/* TMP */
 				fprintf(stderr, "%.*s\n", (int)buf.len, buf.mem);
 				/* ENDTMP */
-				if (proc_server_cmd(&reply, &ch, stxr(buf)))
-					write_spx(sockfd, stxr(reply));
+				if (proc_server_cmd(&reply, &ch, USTR(buf)))
+					write_ustr(sockfd, USTR(reply));
 			}
 		}
-
-		for (i=0; i<ch.len; ++i) {
+		for (i = 0; i < ch.len; ++i) {
 			if (FD_ISSET(ch.fds[i], &rd)) {
 				if (0 > readline(&buf, ch.fds[i])) {
 					LOGFATAL("Unable to read from channel \"%.*s\"",
@@ -321,93 +400,47 @@ yorha_poll(int sockfd)
 						ch.names[i].mem);
 				} else {
 					if (proc_client_cmd(&reply,
-							stxr(ch.names[i]),
-							stxr(buf)))
-						write_spx(sockfd, stxr(reply));
+							USTR(ch.names[i]),
+							USTR(buf)))
+						write_ustr(sockfd, USTR(reply));
 				}
 			}
 		}
 	}
 }
 
-int
-main(int argc, char **argv) 
+/**
+ * TODO(todd): Document this.
+ */
+void
+tokenize(struct strbuf *tok, size_t ntok, struct strbuf *buf)
 {
-	size_t tmp = 0;
-	/* IRC connection context. */
-	int sockfd = 0;
-	spx host = {0};
-	stx port = {0};
-	stx nickname = {0};
-	stx realname = {0};
-	stx prefix = {0};
-	struct arg_option opt[7] = {
-		{
-			'h', "help", sizeof(opt) / sizeof(*opt), opt,
-			arg_help, NULL,
-			"Show this help message and exit"
-		},
-		{
-			'v', "version", 0, NULL,
-			version, NULL,
-			"Show the program version and exit"
-		},
-		{
-			'd', "directory", 1, &prefix,
-			setstx, default_prefix,
-			"Specify the runtime directory to use"
-		},
-		{
-			'n', "nickname", 1, &nickname,
-			setstx, default_nickname,
-			"Specify the nickname to login with"
-		},
-		{
-			'r', "realname", 1, &realname,
-			setstx, default_realname,
-			"Specify the realname to login with"
-		},
-		{
-			'p', "port", 1, &port,
-			setstx, default_port,
-			"Specify the port of the remote irc server"
-		},
-		{
-			'D', "daemonize", 0, NULL,
-			daemonize, NULL,
-			"Allow the program to daemonize"
-		},
-	};
+	size_t i;
+	size_t n;
+	char const *saveptr = buf.mem;
 
-	if (argc < 2)
-		arg_usage(sizeof(opt) / sizeof(*opt), opt);
-	//TODO(todd): Implement this.
-	argv = arg_sort(argv + 1);
-	argv = arg_parse(argv, sizeof(opt) / sizeof(*opt), opt);
-	if (!argv[0])
-		LOGFATAL("No host argument provided.\n");
-	/* Append hostname to prefix and slice it */
-	tmp = prefix.len;
-	if (0 < stxensuresize(&prefix, tmp + strlen(argv[0]) + 2))
-		return EXIT_FAILURE;
-	stxterm(stxapp_str(stxapp_char(&prefix, '/'), argv[0]));
-	/* Change to the supplied prefix */
-	if (0 > mkdirpath(stxref(&prefix)))
-		LOGFATAL("Creation of prefix directory \"%s\" failed.\n",
-				prefix.mem);
-	if (0 > chdir(prefix.mem)) {
-		exit(EXIT_FAILURE);
-		LOGERROR("Could not change directory: ");
-		perror("");
-		return EXIT_FAILURE;
+	for (n = (slice.mem[0] == ':' ? 0 : 1); n < ntok; ++n) {
+		switch (n) {
+		case TOK_PREFIX:
+			tok[n] = Ustringtok(&slice, " ", 1);
+			/* Remove the leading ':' character */
+			tok[n].len -= 1;
+			tok[n].mem += 1;
+			break;
+		case TOK_ARG:
+			tok[n] = Ustringtok(&slice, ":", 1);
+			/* Strip the whitespace */
+			for (i = slice.len - 1; i <= 0; --i)
+				if (isspace(slice.mem[i]))
+					--slice.len;
+			break;
+		case TOK_TEXT:
+			/* Grab the remainder of the text */
+			tok[n] = slice;
+			break;
+		default:
+			tok[n] = Ustringtok(&slice, " ", 1);
+			break;
+		}
 	}
-	host = stxslice(stxref(&prefix), tmp + 1, prefix.len);
-	/* Open the irc-server connection */
-	if (0 > tcpopen(&sockfd, host, stxref(&port), connect))
-		LOGFATAL("Failed to connect to host \"%s\" on port \"%s\".\n",
-				host.mem, port.mem);
-	LOGINFO("Successfully initialized.\n");
-	yorha_login(sockfd, stxr(nickname), stxr(realname), host);
-	yorha_poll(sockfd);
-	return 0;
 }

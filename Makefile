@@ -1,55 +1,55 @@
-# see license file for copyright and license details.
+# See LICENSE file for copyright and license details.
 
 # Project configuration
 include config.mk
 
-CFLAGS += -D_POSIX_C_SOURCE=200112L \
-	  -DPRGM_NAME=\"yorha\" \
-	  -DVERSION=\"$(VERSION)\" \
-	  -DPREFIX=\"$(PREFIX)\"
-LDFLAGS += -I.
-
-MODULES := src
-LIBS := -lstx
+MODULES := arg sys channels strbuf
 SRC := yorha.c
 
 # Project modules
 include $(patsubst %, %/module.mk, $(MODULES))
 
-OBJ := \
-	$(patsubst %.c, %.o, \
-		$(filter %.c, $(SRC)))
-
-%.o: %.c config.mk
-	@printf "CC $<\n"
-	@$(CC) $(CFLAGS) $(LDFLAGS) -c -o $@ $<
+_OBJ := $(patsubst %.c, %.o, $(filter %.c, $(SRC)))
+OBJ := $(patsubst %, build/%, $(_OBJ))
+OBJ_DEBUG := $(patsubst %.o, build/%_d.o, $(_OBJ))
 
 # Standard targets
-all: options yorha
+all: release
 
-options: config.mk
-	@printf -- "yorha build options:\n"
-	@printf -- "CFLAGS  = %s\n" "$(CFLAGS)"
-	@printf -- "LDFLAGS = %s\n" "$(LDFLAGS)"
-	@printf -- "CC      = %s\n" "$(CC)"
+options:
+	@echo "Build options:"
+	@echo "CFLAGS  = $(CFLAGS)"
+	@echo "LDFLAGS = $(LDFLAGS)"
+	@echo "CC      = $(CC)"
 
 dist: clean
-	#@printf "Creating dist tarball ... "
-	#@mkdir -p yorha-$(VERSION)
-	#TODO
-	#@cp -rf ??? yorha-$(VERSION)
-	#TODO
-	#@tar -cf yorha-$(VERSION).tar yorha-$(VERSION)
-	#@gzip yorha-$(VERSION).tar
-	#@rm -rf ${DIST}
-	#@printf "done.\n"
 
 clean:
-	@printf "Cleaning\n"
-	@rm -f $(OBJ) yorha
+	@echo "Cleaning"
+	@rm -rf build
 
-# Main target
-yorha: $(OBJ)
-	$(CC) -o $@ $(OBJ) $(LIBS)
+# Object Build Rules
+build/%.o: %.c
+	@echo "CC [R] $@"
+	@mkdir -p $(shell dirname $@)
+	@$(CC) $(CFLAGS) -c -o $@ $<
+
+build/%_d.o: %.c
+	@echo "CC [D] $@"
+	@mkdir -p $(shell dirname $@)
+	@$(CC) $(CFLAGS_DEBUG) -c -o $@ $< 
+
+# Targets
+build/yorha: $(OBJ)
+	@echo "CC $@"
+	@$(CC) -o $@ $^ $(LDFLAGS)
+
+build/yorha_d: $(OBJ_DEBUG)
+	@echo "CC $@"
+	@$(CC) -o $@ $^ $(LDFLAGS_DEBUG)
+
+release: build/yorha
+
+debug: build/yorha_d
 
 .PHONY: all options check clean dist install uninstall

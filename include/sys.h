@@ -11,9 +11,9 @@ void daemonize();
  */
 int tcpopen(
 		int *sockfd,
-		const spx host,
-		const spx port, 
+		char const *host,
+		char const *port, 
 		int (*opensocket)(int, const struct sockaddr *, socklen_t)
 		);
 
-int mkdirpath(const spx path);
+int mkdirpath(Ustr const *path);
