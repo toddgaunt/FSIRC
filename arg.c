@@ -5,7 +5,8 @@
 #include <stdint.h>
 
 #include "arg.h"
-#include "wmath.h"
+
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
 
 void
 arg_setflag(int *dest)
@@ -79,11 +80,11 @@ arg_print_help(size_t optc, ArgOption const *optv)
 	fprintf(stderr, "options:\n");
 	for (i = 0; i < optc; ++i) {
 		if (optv[i].flag && optv[i].name) {
-			maxlen = WMATH_MAX(maxlen, 6 + strlen(optv[i].name));
+			maxlen = MAX(maxlen, 6 + strlen(optv[i].name));
 		} else if (optv[i].flag) {
-			maxlen = WMATH_MAX(maxlen, 2);
+			maxlen = MAX(maxlen, 2);
 		} else if (optv[i].name) {
-			maxlen = WMATH_MAX(maxlen, 2 + strlen(optv[i].name));
+			maxlen = MAX(maxlen, 2 + strlen(optv[i].name));
 		} else {
 			printf("\nError printing help\n");
 			exit(EXIT_FAILURE);

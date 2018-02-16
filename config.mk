@@ -9,9 +9,8 @@ MANPREFIX := $(PREFIX)/man
 
 # Linking flags
 LDFLAGS :=
-LDFLAGS_DEBUG :=
 
 # C Compiler settings
-CC := cc
-CFLAGS := -O2 -Iinclude -std=c11 -pedantic -Wall -Wextra
-CFLAGS_DEBUG := $(CFLAGS) -g -O0
+CC := clang
+CFLAGS := -O0 -Iinclude -pedantic -Wall -Wextra
+CFLAGS += $(CFLAGS) -g -O0

@@ -1,7 +1,6 @@
 /* See LICENSE file for copyright and license details */
 #include <string.h>
 #include <stdlib.h>
-#include <libstx.h>
 #include <netdb.h>
 #include <fcntl.h>
 #include <sys/socket.h>
@@ -10,7 +9,7 @@
 #include <unistd.h>
 #include <errno.h>
 
-#include "src/sys.h"
+#include "sys.h"
 
 #ifndef PATH_NULL
 #define PATH_NULL "/dev/null"

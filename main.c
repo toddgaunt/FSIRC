@@ -26,11 +26,11 @@
 #include "config.h"
 
 #ifndef PRGM_NAME
-#define PRGM_NAME "NULL"
+#define PRGM_NAME "NAME?"
 #endif
 
 #ifndef VERSION
-#define VERSION "NULL"
+#define VERSION "VERSION?"
 #endif
 
 #ifndef PREFIX
@@ -39,6 +39,9 @@
 
 #define CHANNELS_MAX 64
 #define MSG_MAX 512
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
 
 /* Logging macros */
 #define LOGINFO(...)\
@@ -65,7 +68,7 @@ enum {
 	TOK_CMD,
 	TOK_ARG,
 	TOK_TEXT,
-	TOK_LAST
+	TOK_LAST,
 };
 
 typedef struct {
@@ -229,6 +232,7 @@ readline(char dest[MSG_MAX], int fd)
 			return -1;
 		dest[i] = ch;
 	}
+	dest[i] = '\0';
 	/* Remove line delimiters as they make logging difficult */
 	rstrip(dest, "\r\n");
 	return 0;
@@ -252,13 +256,13 @@ login(const int sockfd, char const *nick, char const *real, char const *host)
 void
 logtime(FILE *fp)
 {
-	char buf[16];
+	char buf[64];
 	time_t t;
 	const struct tm *tm;
 
 	t = time(NULL);
 	tm = localtime(&t);
-	strftime(buf, sizeof(buf), "%m %d %T", tm);
+	strftime(buf, sizeof(buf), "%Y-%m-%d %T", tm);
 	fputs(buf, fp);
 }
 
@@ -269,7 +273,7 @@ bool
 proc_server_cmd(char reply[MSG_MAX], Channels *ch, char const *msg)
 {
 	char tmp[MSG_MAX];
-	char const *tok[TOK_LAST];
+	char const *tok[TOK_LAST] = {0};
 
 	strncpy(tmp, msg, MSG_MAX);
 	tokenize(tok, tmp);
@@ -403,22 +407,21 @@ m_tok(char **pos, char const *delim)
 	size_t i, j;
 	size_t const n = strlen(delim);
 	size_t const len = strlen(*pos);
-	char *ret;
+	char *ret = NULL;
 
 	for (i = 0; i < len; ++i) {
 		for (j = i; j < i + n; ++j) {
-			if ((*pos)[j] != delim[j-i]) {
+			if ((*pos)[j] != delim[j-i])
 				break;
-			}
 		}
-		if (j-i == n) {
+		if (j - i == n) {
 			ret = *pos;
+			(*pos)[i]= '\0';
 			*pos += i + n;
-			**pos = '\0';
-			return ret;
+			break;
 		}
 	}
-	return NULL;
+	return ret;
 }
 
 /**
@@ -442,7 +445,7 @@ tokenize(char const *tok[TOK_LAST], char *buf)
 			tok[n] = m_tok(&saveptr, ":");
 			/* Strip the whitespace */
 			for (i = strlen(saveptr) - 1; i == 0; --i)
-				if (isspace(saveptr[i]))
+				if (isspace(*saveptr))
 					++saveptr;
 			break;
 		case TOK_TEXT:
@@ -459,14 +462,15 @@ tokenize(char const *tok[TOK_LAST], char *buf)
 int
 main(int argc, char **argv) 
 {
-	size_t tmp;
 	/* IRC connection context. */
 	int sockfd;
+	char prefix[PATH_MAX];
+	/* Arguments */
 	char const *host;
 	char const *port;
 	char const *nickname;
 	char const *realname;
-	char const *prefix;
+	char const *directory;
 	ArgOption opt[6] = {
 		{
 			'v', "version", version,
@@ -475,7 +479,7 @@ main(int argc, char **argv)
 		},
 		{
 			'd', "directory", arg_setptr,
-			&prefix, default_prefix,
+			&directory, default_directory,
 			"Specify the runtime prefix directory to use"
 		},
 		{
@@ -505,23 +509,21 @@ main(int argc, char **argv)
 	argv = arg_parse(argv + 1, sizeof(opt) / sizeof(*opt), opt, usage, help);
 	if (!argv[0])
 		LOGFATAL("No host argument provided.\n");
-	/* Append hostname to prefix and slice it */
-	tmp = prefix.len;
-	sb_cat_str(&prefix, "/");
-	sb_cat_str(&prefix, argv[0]);
+	host = argv[0];
+	/* Create the prefix from the directoryAppend hostname to prefix and slice it */
+	snprintf(prefix, PATH_MAX, "%s/%s", directory, host);
 	if (0 > mkdirpath(prefix))
 		LOGFATAL("Unable to create prefix directory\n");
 	LOGINFO("Root directory created.\n");
 	/* Change to the prefix directory */
-	if (0 > chdir(prefix.mem))
+	if (0 > chdir(prefix))
 		return EXIT_FAILURE;
-	sb_slice(&host, &prefix, tmp + 1, prefix.len);
 	/* Open the irc-server connection */
-	if (0 > tcpopen(&sockfd, host, Ustringref(&port), connect))
+	if (0 > tcpopen(&sockfd, host, port, connect))
 		LOGFATAL("Could not connect to host \"%s\" on port \"%s\".\n",
-				host.mem, port.mem);
+				host, port);
 	LOGINFO("Successfully initialized.\n");
 	login(sockfd, nickname, realname, host);
 	poll_fds(sockfd);
-	return 0;
+	return EXIT_SUCCESS;
 }

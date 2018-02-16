@@ -4,7 +4,7 @@
 include config.mk
 
 MODULES :=
-SRC := main.c sys.c
+SRC := main.c arg.c sys.c
 
 # Project modules
 include $(patsubst %, %/module.mk, $(MODULES))

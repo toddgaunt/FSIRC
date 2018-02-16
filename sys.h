@@ -16,4 +16,4 @@ int tcpopen(
 		int (*opensocket)(int, const struct sockaddr *, socklen_t)
 		);
 
-int mkdirpath(Ustr const *path);
+int mkdirpath(char const *path);
