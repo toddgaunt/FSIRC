@@ -104,13 +104,13 @@ tcpopen(
  * Return: 0 if directory path is fully created. -1 if mkdir fails.
  */
 int
-mkdirpath(struct strbuf const *path)
+mkdirpath(char const *path)
 {
 	size_t i;
 	size_t len;
-	char tmp[path->len + 1];
+	char tmp[strlen(path) + 1];
 
-	len = path->len;
+	len = strlen(path);
 	memcpy(tmp, path->mem, path->len);
 	tmp[path->len] = '\0';
 	if('/' == tmp[len - 1])

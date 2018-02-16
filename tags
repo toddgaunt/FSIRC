@@ -1,0 +1,50 @@
+!_TAG_FILE_FORMAT	2	/extended format; --format=1 will not append ;" to lines/
+!_TAG_FILE_SORTED	1	/0=unsorted, 1=sorted, 2=foldcase/
+!_TAG_PROGRAM_AUTHOR	Darren Hiebert	/dhiebert@users.sourceforge.net/
+!_TAG_PROGRAM_NAME	Exuberant Ctags	//
+!_TAG_PROGRAM_URL	http://ctags.sourceforge.net	/official site/
+!_TAG_PROGRAM_VERSION	5.8	//
+BINPREFIX	config.mk	/^BINPREFIX := $(PREFIX)\/bin$/;"	m
+CC	config.mk	/^CC := cc$/;"	m
+CFLAGS	config.mk	/^CFLAGS := -O2 -Iinclude -std=c11 -pedantic -Wall -Wextra$/;"	m
+CFLAGS_DEBUG	config.mk	/^CFLAGS_DEBUG := $(CFLAGS) -g -O0$/;"	m
+CHANNELS_MAX	main.c	41;"	d	file:
+DirectoryOfThisScript	.ycm_extra_conf.py	/^def DirectoryOfThisScript():$/;"	f
+FlagsForFile	.ycm_extra_conf.py	/^def FlagsForFile( filename, **kwargs ):$/;"	f
+GetCompilationInfoForFile	.ycm_extra_conf.py	/^def GetCompilationInfoForFile( filename ):$/;"	f
+INCLUDEPREFIX	config.mk	/^INCLUDEPREFIX := $(PREFIX)\/include$/;"	m
+IsHeaderFile	.ycm_extra_conf.py	/^def IsHeaderFile( filename ):$/;"	f
+LDFLAGS	config.mk	/^LDFLAGS :=$/;"	m
+LDFLAGS_DEBUG	config.mk	/^LDFLAGS_DEBUG :=$/;"	m
+LIBPREFIX	config.mk	/^LIBPREFIX := $(PREFIX)\/lib$/;"	m
+LOGERROR	main.c	51;"	d	file:
+LOGFATAL	main.c	57;"	d	file:
+LOGINFO	main.c	45;"	d	file:
+MANPREFIX	config.mk	/^MANPREFIX := $(PREFIX)\/man$/;"	m
+MODULES	Makefile	/^MODULES :=$/;"	m
+MSG_MAX	main.c	42;"	d	file:
+MakeRelativePathsInFlagsAbsolute	.ycm_extra_conf.py	/^def MakeRelativePathsInFlagsAbsolute( flags, working_directory ):$/;"	f
+OBJ	Makefile	/^OBJ := $(patsubst %.c, %.o, $(filter %.c, $(SRC)))$/;"	m
+PATH_NULL	sys.c	16;"	d	file:
+PREFIX	config.mk	/^PREFIX := \/usr\/local$/;"	m
+PREFIX	main.c	38;"	d	file:
+PRGM_NAME	main.c	30;"	d	file:
+SOURCE_EXTENSIONS	.ycm_extra_conf.py	/^SOURCE_EXTENSIONS = [ '.C', '.cpp', '.cxx', '.cc', '.c', '.m', '.mm' ]$/;"	v
+SRC	Makefile	/^SRC := main.c sys.c$/;"	m
+VERSION	config.mk	/^VERSION := 1.0.0$/;"	m
+VERSION	main.c	34;"	d	file:
+compilation_database_folder	.ycm_extra_conf.py	/^compilation_database_folder = ''$/;"	v
+daemonize	sys.c	/^daemonize()$/;"	f
+daemonize_fork	sys.c	/^daemonize_fork()$/;"	f	file:
+database	.ycm_extra_conf.py	/^  database = None$/;"	v
+database	.ycm_extra_conf.py	/^  database = ycm_core.CompilationDatabase( compilation_database_folder )$/;"	v
+default_nickname	config.h	/^static const char *default_nickname = "yorha_user_a3";$/;"	v
+default_port	config.h	/^static const char *default_port = "6667";$/;"	v
+default_prefix	config.h	/^static const char *default_prefix = "\/tmp\/yorha";$/;"	v
+default_realname	config.h	/^static const char *default_realname = "yorha_user_a3";$/;"	v
+flags	.ycm_extra_conf.py	/^flags = [$/;"	v
+mkdirpath	sys.c	/^mkdirpath(char const *path)$/;"	f
+os	.ycm_extra_conf.py	/^import os$/;"	i
+ping_timeout	config.h	/^static const int ping_timeout = 300;$/;"	v
+tcpopen	sys.c	/^tcpopen($/;"	f
+ycm_core	.ycm_extra_conf.py	/^import ycm_core$/;"	i
