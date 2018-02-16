@@ -107,12 +107,11 @@ int
 mkdirpath(char const *path)
 {
 	size_t i;
-	size_t len;
-	char tmp[strlen(path) + 1];
+	size_t len = strlen(path);
+	char tmp[len + 1];
 
-	len = strlen(path);
-	memcpy(tmp, path->mem, path->len);
-	tmp[path->len] = '\0';
+	memcpy(tmp, path, len);
+	tmp[len] = '\0';
 	if('/' == tmp[len - 1])
 		tmp[len - 1] = '\0';
 	for (i = 1; i < len; ++i) {

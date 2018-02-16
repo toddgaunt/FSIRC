@@ -4,11 +4,14 @@
 !_TAG_PROGRAM_NAME	Exuberant Ctags	//
 !_TAG_PROGRAM_URL	http://ctags.sourceforge.net	/official site/
 !_TAG_PROGRAM_VERSION	5.8	//
+ARG_H	arg.h	3;"	d
+ArgOption	arg.h	/^} ArgOption;$/;"	t	typeref:struct:__anon3
 BINPREFIX	config.mk	/^BINPREFIX := $(PREFIX)\/bin$/;"	m
 CC	config.mk	/^CC := cc$/;"	m
 CFLAGS	config.mk	/^CFLAGS := -O2 -Iinclude -std=c11 -pedantic -Wall -Wextra$/;"	m
 CFLAGS_DEBUG	config.mk	/^CFLAGS_DEBUG := $(CFLAGS) -g -O0$/;"	m
-CHANNELS_MAX	main.c	41;"	d	file:
+CHANNELS_MAX	main.c	40;"	d	file:
+Channels	main.c	/^} Channels;$/;"	t	typeref:struct:__anon2	file:
 DirectoryOfThisScript	.ycm_extra_conf.py	/^def DirectoryOfThisScript():$/;"	f
 FlagsForFile	.ycm_extra_conf.py	/^def FlagsForFile( filename, **kwargs ):$/;"	f
 GetCompilationInfoForFile	.ycm_extra_conf.py	/^def GetCompilationInfoForFile( filename ):$/;"	f
@@ -17,34 +20,77 @@ IsHeaderFile	.ycm_extra_conf.py	/^def IsHeaderFile( filename ):$/;"	f
 LDFLAGS	config.mk	/^LDFLAGS :=$/;"	m
 LDFLAGS_DEBUG	config.mk	/^LDFLAGS_DEBUG :=$/;"	m
 LIBPREFIX	config.mk	/^LIBPREFIX := $(PREFIX)\/lib$/;"	m
-LOGERROR	main.c	51;"	d	file:
-LOGFATAL	main.c	57;"	d	file:
-LOGINFO	main.c	45;"	d	file:
+LOGERROR	main.c	50;"	d	file:
+LOGFATAL	main.c	56;"	d	file:
+LOGINFO	main.c	44;"	d	file:
 MANPREFIX	config.mk	/^MANPREFIX := $(PREFIX)\/man$/;"	m
 MODULES	Makefile	/^MODULES :=$/;"	m
-MSG_MAX	main.c	42;"	d	file:
+MSG_MAX	main.c	41;"	d	file:
 MakeRelativePathsInFlagsAbsolute	.ycm_extra_conf.py	/^def MakeRelativePathsInFlagsAbsolute( flags, working_directory ):$/;"	f
 OBJ	Makefile	/^OBJ := $(patsubst %.c, %.o, $(filter %.c, $(SRC)))$/;"	m
 PATH_NULL	sys.c	16;"	d	file:
 PREFIX	config.mk	/^PREFIX := \/usr\/local$/;"	m
-PREFIX	main.c	38;"	d	file:
-PRGM_NAME	main.c	30;"	d	file:
+PREFIX	main.c	37;"	d	file:
+PRGM_NAME	main.c	29;"	d	file:
 SOURCE_EXTENSIONS	.ycm_extra_conf.py	/^SOURCE_EXTENSIONS = [ '.C', '.cpp', '.cxx', '.cc', '.c', '.m', '.mm' ]$/;"	v
 SRC	Makefile	/^SRC := main.c sys.c$/;"	m
+TOK_ARG	main.c	/^	TOK_ARG,$/;"	e	enum:__anon1	file:
+TOK_CMD	main.c	/^	TOK_CMD,$/;"	e	enum:__anon1	file:
+TOK_LAST	main.c	/^	TOK_LAST$/;"	e	enum:__anon1	file:
+TOK_PREFIX	main.c	/^	TOK_PREFIX = 0,$/;"	e	enum:__anon1	file:
+TOK_TEXT	main.c	/^	TOK_TEXT,$/;"	e	enum:__anon1	file:
 VERSION	config.mk	/^VERSION := 1.0.0$/;"	m
-VERSION	main.c	34;"	d	file:
+VERSION	main.c	33;"	d	file:
+arg_parse	arg.c	/^arg_parse($/;"	f
+arg_print_help	arg.c	/^arg_print_help(size_t optc, ArgOption const *optv)$/;"	f
+arg_print_usage	arg.c	/^arg_print_usage(size_t optc, ArgOption const *optv)$/;"	f
+arg_setdouble	arg.c	/^arg_setdouble(double *dest, char const *str)$/;"	f
+arg_setflag	arg.c	/^arg_setflag(int *dest)$/;"	f
+arg_setlong	arg.c	/^arg_setlong(long *dest, char const *str)$/;"	f
+arg_setnot	arg.c	/^arg_setnot(int *dest)$/;"	f
+arg_setptr	arg.c	/^arg_setptr(void const **dest, char const *str)$/;"	f
+arg_sort	arg.c	/^arg_sort(char **argv)$/;"	f
+callback	arg.h	/^	void (*callback)();$/;"	m	struct:__anon3
+channels_add	main.c	/^channels_add(Channels *ch, char const *path)$/;"	f	file:
+channels_log	main.c	/^channels_log(char const *path, char const *msg)$/;"	f	file:
+channels_open_fifo	main.c	/^channels_open_fifo(char const *path)$/;"	f	file:
+channels_remove	main.c	/^channels_remove(Channels *ch, char const *path)$/;"	f	file:
 compilation_database_folder	.ycm_extra_conf.py	/^compilation_database_folder = ''$/;"	v
 daemonize	sys.c	/^daemonize()$/;"	f
 daemonize_fork	sys.c	/^daemonize_fork()$/;"	f	file:
 database	.ycm_extra_conf.py	/^  database = None$/;"	v
 database	.ycm_extra_conf.py	/^  database = ycm_core.CompilationDatabase( compilation_database_folder )$/;"	v
+default_arg	arg.h	/^	char const *default_arg;$/;"	m	struct:__anon3
 default_nickname	config.h	/^static const char *default_nickname = "yorha_user_a3";$/;"	v
 default_port	config.h	/^static const char *default_port = "6667";$/;"	v
 default_prefix	config.h	/^static const char *default_prefix = "\/tmp\/yorha";$/;"	v
 default_realname	config.h	/^static const char *default_realname = "yorha_user_a3";$/;"	v
+dest	arg.h	/^	void *dest;$/;"	m	struct:__anon3
+fds	main.c	/^	int fds[CHANNELS_MAX];$/;"	m	struct:__anon2	file:
+flag	arg.h	/^	char const flag;$/;"	m	struct:__anon3
 flags	.ycm_extra_conf.py	/^flags = [$/;"	v
+help	arg.h	/^	char const *help;$/;"	m	struct:__anon3
+help	main.c	/^help(size_t optc, ArgOption const *optv)$/;"	f	file:
+login	main.c	/^login(const int sockfd, char const *nick, char const *real, char const *host)$/;"	f
+logtime	main.c	/^logtime(FILE *fp)$/;"	f
+m_tok	main.c	/^m_tok(char **pos, char const *delim)$/;"	f	file:
+main	main.c	/^main(int argc, char **argv) $/;"	f
 mkdirpath	sys.c	/^mkdirpath(char const *path)$/;"	f
+n	main.c	/^	size_t n;$/;"	m	struct:__anon2	file:
+name	arg.h	/^	char const *name;$/;"	m	struct:__anon3
+opt_flag_callback	arg.c	/^opt_flag_callback($/;"	f	file:
+opt_name_callback	arg.c	/^opt_name_callback($/;"	f	file:
 os	.ycm_extra_conf.py	/^import os$/;"	i
+paths	main.c	/^	char *paths[CHANNELS_MAX];$/;"	m	struct:__anon2	file:
 ping_timeout	config.h	/^static const int ping_timeout = 300;$/;"	v
+poll_fds	main.c	/^poll_fds(int sockfd)$/;"	f	file:
+proc_client_cmd	main.c	/^proc_client_cmd(char reply[MSG_MAX], char const *path, char const *msg)$/;"	f
+proc_server_cmd	main.c	/^proc_server_cmd(char reply[MSG_MAX], Channels *ch, char const *msg)$/;"	f
+readline	main.c	/^readline(char dest[MSG_MAX], int fd)$/;"	f	file:
+root_path	main.c	/^char const *root_path = ".";$/;"	v
+rstrip	main.c	/^rstrip(char *str, char const *chs)$/;"	f	file:
 tcpopen	sys.c	/^tcpopen($/;"	f
+tokenize	main.c	/^tokenize(char const *tok[TOK_LAST], char *buf)$/;"	f
+usage	main.c	/^usage(size_t optc, ArgOption const *optv)$/;"	f	file:
+version	main.c	/^version()$/;"	f	file:
 ycm_core	.ycm_extra_conf.py	/^import ycm_core$/;"	i

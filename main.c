@@ -21,10 +21,9 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "channels.h"
+#include "sys.h"
 #include "arg.h"
 #include "config.h"
-#include "strbuf.h"
 
 #ifndef PRGM_NAME
 #define PRGM_NAME "NULL"
@@ -58,7 +57,7 @@
 	do { \
 		logtime(stderr); \
 		fprintf(stderr, " "PRGM_NAME": fatal: "__VA_ARGS__); \
-		exit(EXIT_FAILURE);
+		exit(EXIT_FAILURE); \
 	} while (0)
 
 enum {
@@ -70,30 +69,24 @@ enum {
 };
 
 typedef struct {
-	int n;
+	size_t n;
 	int fds[CHANNELS_MAX];
 	char *paths[CHANNELS_MAX];
 } Channels;
 
-int channels_add(struct channels *ch, struct strbuf const *path);
-int channels_remove(struct channels *ch, struct strbuf const *path);
-void channels_log(struct strbuf const *path, struct strbuf const *msg);
-
-/* Function Declarations */
-void login(const int sockfd, struct strbuf const *nick,
-		struct strbuf const *real,
-		struct strbuf const *host);
+static int channels_add(Channels *ch, char const *path);
+static int channels_remove(Channels *ch, char const *path);
+static void channels_log(char const *path, char const *msg);
+void login(const int sockfd, char const *nick, char const *real, char const *host);
 void logtime(FILE *fp);
 static void poll_fds(int sockfd);
-bool proc_server_cmd(struct strbuf *reply, Channels *ch, Ustr msg);
-bool proc_client_cmd(struct strbuf *reply, Ustr name, Ustr msg);
-static int readline(struct strbuf *sp, int fd);
-void tokenize(Ustr *tok, size_t ntok, const Ustr buf);
-static void version();
-static int write_Ustr(int sockfd, const Ustr sp);
+bool proc_server_cmd(char reply[MSG_MAX], Channels *ch, char const *msg);
+bool proc_client_cmd(char reply[MSG_MAX], char const *name, char const *msg);
+static int readline(char dest[MSG_MAX], int fd);
+void tokenize(char const *tok[TOK_LAST], char *buf);
 
-/* Global constants */
-const Ustr root = {1, "."};
+/* Root channel path */
+char const *root_path = ".";
 
 /* Display a usage message and then exit */
 static void
@@ -110,16 +103,8 @@ help(size_t optc, ArgOption const *optv)
 {
 	arg_print_usage(optc, optv);
 	fprintf(stderr, " host\n");
-	arg_printhelp(optc, optv);
+	arg_print_help(optc, optv);
 	exit(EXIT_FAILURE);
-}
-
-/* Create a new strbuf from a C string */
-void
-set_strbuf(struct strbuf *dest, char const *str)
-{
-	sb_init(dest);
-	sb_cat_str(dest, str);
 }
 
 /**
@@ -131,9 +116,10 @@ static int
 channels_open_fifo(char const *path)
 {
 	int fd = -1;
-	char tmp[MSG_MAX + sizeof("/in")];
+	int len = strlen(path);
+	char tmp[len + sizeof("/in")];
 
-	snprintf(tmp, "%s/in", path, MSG_MAX);
+	snprintf(tmp, sizeof(tmp), "%s/in", path);
 	remove(tmp);
 	if (0 > (fd = mkfifo(tmp, S_IRWXU))) {
 		LOGERROR("Input fifo creation at \"%s\" failed.\n", tmp);
@@ -147,22 +133,18 @@ channels_open_fifo(char const *path)
  * Add a channel to a Channels struct, resize it if necessary.
  */
 static int
-channels_add(struct channels *ch, struct strbuf const *path)
+channels_add(Channels *ch, char const *path)
 {
-	size_t diff;
-	size_t nextsize;
-	struct strbuf *sp;
-
-	ch->paths[ch->len] = malloc(strlen(path) + 1);
-	strcpy(ch->paths[ch->len], path);
-	if (0 > mkdirpath(ch->paths[ch->len])) {
+	ch->paths[ch->n] = malloc(strlen(path) + 1);
+	strcpy(ch->paths[ch->n], path);
+	if (0 > mkdirpath(ch->paths[ch->n])) {
 		LOGERROR("Directory creation for path \"%s\" failed.\n",
-				ch->paths[ch->len].mem);
+				ch->paths[ch->n]);
 		return -1;
 	}
-	if (0 > (ch->fds[ch->len] = channels_open_fifo(&ch->paths[ch->len])))
+	if (0 > (ch->fds[ch->n] = channels_open_fifo(ch->paths[ch->n])))
 		return -1;
-	ch->len += 1;
+	ch->n += 1;
 	return 0;
 }
 
@@ -170,18 +152,18 @@ channels_add(struct channels *ch, struct strbuf const *path)
  * Remove a channel from a Channels struct.
  */
 static int
-channels_remove(struct channels *ch, struct strbuf const *path)
+channels_remove(Channels *ch, char const *path)
 {
 	size_t i;
 
-	for (i = 0; i < ch->len; ++i) {
-		if (0 == stxcmp(stxref(ch->names + i), name)) {
+	for (i = 0; i < ch->n; ++i) {
+		if (0 == strcmp(ch->paths[i], path)) {
 			// Close any open OS resources.
 			close(ch->fds[i]);
-			// Swap last channel with removed channel.
-			ch->fds[i] = ch->fds[ch->len - 1];
-			ch->names[i] = ch->names[ch->len - 1];
-			ch->len--;
+			// Move last channel to removed channel index.
+			ch->fds[i] = ch->fds[ch->n - 1];
+			ch->paths[i] = ch->paths[ch->n - 1];
+			ch->n -= 1;
 			return 0;
 		}
 	}
@@ -192,21 +174,20 @@ channels_remove(struct channels *ch, struct strbuf const *path)
  * Log to the output file with the given channel name.
  */
 static void
-channels_log(struct strbuf const *path, struct strbuf const *msg)
+channels_log(char const *path, char const *msg)
 {
 	FILE *fp;
-	struct strbuf tmp = SB_INIT;
+	int len = strlen(path);
+	char tmp[len + sizeof("/out")];
 
-	sb_cpy_sb(&tmp, path);
-	sb_cpy_str(&tmp, "/out");
-	if (!(fp = fopen(tmp.mem, "a"))) {
-		LOGERROR("Output file \"%s\" failed to open.\n", tmp.mem);
+	snprintf(tmp, sizeof(tmp), "%s/out", msg);
+	if (!(fp = fopen(tmp, "a"))) {
+		LOGERROR("Output file \"%s\" failed to open.\n", tmp);
 	} else {
 		logtime(fp);
-		fprintf(fp, " %.*s\n", (int)msg.len, msg.mem);
+		fprintf(fp, " %s\n", msg);
 		fclose(fp);
 	}
-	sb_release(&tmp);
 }
 
 /**
@@ -220,25 +201,25 @@ version()
 }
 
 static int
-static void
 rstrip(char *str, char const *chs)
 {
 	size_t removed = 0;
-	char *begin = sp->mem + sp->len - 1;
-	char *end = sp->mem;
+	size_t len = strlen(str);
+	char *begin = str + len - 1;
+	char *end = str;
 
-	if (0 == sp->len)
-		return sp;
+	if (0 == len)
+		return 0;
 	while (begin != end && memchr(chs, *begin, len)) {
 		++removed;
 		--begin;
 	}
-	str[strlen(str) - removed] = '\0';
-	sp->len -= removed;
+	str[len - removed] = '\0';
+	return removed;
 }
 
 static int
-readline(char *dest, int fd)
+readline(char dest[MSG_MAX], int fd)
 {
 	char ch = '\0';
 	size_t i;
@@ -246,10 +227,10 @@ readline(char *dest, int fd)
 	for (i = 0; i < MSG_MAX && '\n' != ch; ++i) {
 		if (1 != read(fd, &ch, 1))
 			return -1;
-		sp->mem[i] = ch;
+		dest[i] = ch;
 	}
 	/* Remove line delimiters as they make logging difficult */
-	rstrip(sp, "\r\n");
+	rstrip(dest, "\r\n");
 	return 0;
 }
 
@@ -257,24 +238,14 @@ readline(char *dest, int fd)
  * Initial login to the IRC server.
  */
 void
-login(const int sockfd, struct strbuf const *nick, struct strbuf const *real, struct strbuf const *host)
+login(const int sockfd, char const *nick, char const *real, char const *host)
 {
 
-	size_t len;
-	struct strbuf buf = SB_INIT;
+	char buf[MSG_MAX];
 
-	sb_fmt(&buf, "NICK %s\r\nUSER %s localhost : %s\r\n");
-	//TODO(todd): Error handling
-	sb_cat_sb(&buf, SB_LIT("NICK "));
-	sb_cat_sb(&buf, nick);
-	sb_cat_sb(&buf, SB_LIT("\r\nUSER "));
-	sb_cat_sb(&buf, nick);
-	sb_cat_sb(&buf, SB_LIT(" localhost "));
-	sb_cat_sb(&buf, host);
-	sb_cat_sb(&buf, SB_LIT(" :"));
-	sb_cat_sb(&buf, real);
-	sb_cat_sb(&buf, SB_LIT("\r\n"));
-	write_sb(sockfd, USTR(buf));
+	snprintf(buf, MSG_MAX, "NICK %s\r\nUSER %s localhost %s : %s\r\n",
+			nick, nick, host, real);
+	write(sockfd, buf, strlen(buf));
 }
 
 /* Log the time to a file */
@@ -288,32 +259,31 @@ logtime(FILE *fp)
 	t = time(NULL);
 	tm = localtime(&t);
 	strftime(buf, sizeof(buf), "%m %d %T", tm);
-	fprintf(fp, buf);
+	fputs(buf, fp);
 }
 
 /**
  * Process and incoming message from the IRC server connection.
  */
 bool
-proc_server_cmd(struct strbuf *reply, Channels *ch, Ustr msg)
+proc_server_cmd(char reply[MSG_MAX], Channels *ch, char const *msg)
 {
-	struct strbuf tok[TOK_LAST];
-	tokenize(tok, TOK_LAST, msg);
+	char tmp[MSG_MAX];
+	char const *tok[TOK_LAST];
 
-	if (sb_eq(&tok[TOK_CMD], &SB_LIT("PING"))) {
-		snprintf(reply->mem, reply->size,
-				"PONG %.*s\r\n",
-				(int)tok[TOK_ARG].len,
-				tok[TOK_ARG].mem);
+	strncpy(tmp, msg, MSG_MAX);
+	tokenize(tok, tmp);
+	if (0 == strcmp(tok[TOK_CMD], "PING")) {
+		snprintf(reply, MSG_MAX, "PONG %s\r\n", tok[TOK_ARG]);
 		return true;
-	} else if (sb_eq(tok[TOK_CMD].mem, &SB_LIT("PART"))) {
-		channels_del(ch, tok[TOK_ARG]);
-	} else if (sb_eq(tok[TOK_CMD].mem, &SB_LIT("JOIN"))) {
+	} else if (0 == strcmp(tok[TOK_CMD], "PART")) {
+		channels_remove(ch, tok[TOK_ARG]);
+	} else if (0 == strcmp(tok[TOK_CMD], "JOIN")) {
 		channels_add(ch, tok[TOK_ARG]);
-	} else if (sb_eq(tok[TOK_CMD].mem, &SB_LIT("PRIVMSG"))) {
+	} else if (0 == strcmp(tok[TOK_CMD], "PRIVMSG")) {
 		channels_log(tok[TOK_ARG], msg);
 	} else {
-		channels_log(root, msg);
+		channels_log(root_path, msg);
 	}
 	return false;
 }
@@ -322,58 +292,40 @@ proc_server_cmd(struct strbuf *reply, Channels *ch, Ustr msg)
  * Process a Ustring into a message to be sent to an IRC channel.
  */
 bool
-proc_client_cmd(struct strbuf *reply, Ustr name, Ustr msg)
+proc_client_cmd(char reply[MSG_MAX], char const *path, char const *msg)
 {
 	size_t i;
-	Ustr slice;
+	size_t msg_len = strlen(msg);
+	char const *slice;
 
-	if (msg.mem[0] != '/') {
-		LOGINFO("Sending message to \"%.*s\"", (int)name.len, name.mem);
-		snprintf(reply->mem, reply->size,
-				"PRIVMSG %.*s :%.*s\r\n", 
-				(int)name.len,
-				name.mem,
-				(int)msg.len,
-				msg.mem);
-	} else if (msg.mem[0] == '/' && msg.len > 1) {
+	if (msg[0] != '/') {
+		LOGINFO("Sending message to \"%s\"", path);
+		snprintf(reply, MSG_MAX, "PRIVMSG %s :%s\r\n", path, msg);
+	} else if (msg[0] == '/' && msg_len > 1) {
 		/* Remove leading whitespace. */
-		for (i = 0; i < msg.len && msg.mem[i] != ' '; ++i);
-		slice = Ustringslice(msg, i, msg.len);
-		switch (msg.mem[1]) {
+		for (i = 0; i < msg_len && msg[i] != ' '; ++i)
+			;
+		slice = msg + i;
+		switch (msg[1]) {
 		/* Join a channel */
 		case 'j':
-			snprintf(reply->mem, reply->size,
-					"JOIN %.*s\r\n",
-					(int)slice.len,
-					slice.mem);
+			snprintf(reply, MSG_MAX, "JOIN %s\r\n", slice);
 			break;
 		/* Part from a channel */
 		case 'p': 
-			snprintf(reply->mem, reply->size,
-					"PART %.*s\r\n",
-					(int)slice.len,
-					slice.mem);
+			snprintf(reply, MSG_MAX, "PART %s\r\n", slice);
 			break;
 		/* Send a "me" message */
 		case 'm':
-			snprintf(reply->mem, reply->size,
-					"ME %.*s\r\n",
-					(int)slice.len,
-					slice.mem);
+			snprintf(reply, MSG_MAX, "ME %s\r\n", slice);
 			break;
 		/* Set status to "away" */
 		case 'a':
-			snprintf(reply->mem, reply->size,
-					"AWAY %.*s\r\n",
-					(int)slice.len,
-					slice.mem);
+			snprintf(reply, MSG_MAX, "AWAY %s\r\n", slice);
 			break;
 		/* Send raw IRC protocol */
 		case 'r':
-			snprintf(reply->mem, reply->size,
-					"%.*s\r\n",
-					(int)slice.len,
-					slice.mem);
+			snprintf(reply, MSG_MAX, "%s\r\n", slice);
 			break;
 		default: 
 			LOGERROR("Invalid command entered\n.");
@@ -396,17 +348,17 @@ poll_fds(int sockfd)
 	int maxfd;
 	int rv;
 	struct timeval tv;
-	Channels ch = {0, 0, 0};
-	char const reply[MSG_MAX + 1];
-	char const buf[MSG_MAX + 1];
+	Channels ch = {0};
+	char reply[MSG_MAX + 1];
+	char buf[MSG_MAX + 1];
 
 	/* Add the root channel for the connection */
-	channels_add(&ch, root);
+	channels_add(&ch, root_path);
 	while (1) {
 		FD_ZERO(&rd);
 		maxfd = sockfd;
 		FD_SET(sockfd, &rd);
-		for (i = 0; i < ch.len; ++i) {
+		for (i = 0; i < ch.n; ++i) {
 			if (maxfd < ch.fds[i])
 				maxfd = ch.fds[i];
 			FD_SET(ch.fds[i], &rd);
@@ -421,64 +373,84 @@ poll_fds(int sockfd)
 		}
 		/* Check for messages from remote host */
 		if (FD_ISSET(sockfd, &rd)) {
-			if (0 > readline(&buf, sockfd)) {
+			if (0 > readline(buf, sockfd)) {
 				LOGFATAL("Unable to read from socket");
 			} else {
 				/* TMP */
-				fprintf(stderr, "%.*s\n", (int)buf.len, buf.mem);
+				fprintf(stderr, "%s\n", buf);
 				/* ENDTMP */
-				if (proc_server_cmd(&reply, &ch, USTR(buf)))
-					write_ustr(sockfd, USTR(reply));
+				if (proc_server_cmd(reply, &ch, buf))
+					write(sockfd, reply, strlen(reply));
 			}
 		}
-		for (i = 0; i < ch.len; ++i) {
+		for (i = 0; i < ch.n; ++i) {
 			if (FD_ISSET(ch.fds[i], &rd)) {
-				if (0 > readline(&buf, ch.fds[i])) {
-					LOGFATAL("Unable to read from channel \"%.*s\"",
-						(int)ch.names[i].len,
-						ch.names[i].mem);
+				if (0 > readline(buf, ch.fds[i])) {
+					LOGFATAL("Unable to read from channel \"%s\"",
+						ch.paths[i]);
 				} else {
-					if (proc_client_cmd(&reply,
-							USTR(ch.names[i]),
-							USTR(buf)))
-						write_ustr(sockfd, USTR(reply));
+					if (proc_client_cmd(reply, ch.paths[i], buf))
+						write(sockfd, reply, strlen(reply));
 				}
 			}
 		}
 	}
 }
 
+static char *
+m_tok(char **pos, char const *delim)
+{
+	size_t i, j;
+	size_t const n = strlen(delim);
+	size_t const len = strlen(*pos);
+	char *ret;
+
+	for (i = 0; i < len; ++i) {
+		for (j = i; j < i + n; ++j) {
+			if ((*pos)[j] != delim[j-i]) {
+				break;
+			}
+		}
+		if (j-i == n) {
+			ret = *pos;
+			*pos += i + n;
+			**pos = '\0';
+			return ret;
+		}
+	}
+	return NULL;
+}
+
 /**
  * TODO(todd): Document this.
  */
 void
-tokenize(struct strbuf *tok, size_t ntok, struct strbuf *buf)
+tokenize(char const *tok[TOK_LAST], char *buf)
 {
 	size_t i;
 	size_t n;
-	char const *saveptr = buf.mem;
+	char *saveptr = buf;
 
-	for (n = (slice.mem[0] == ':' ? 0 : 1); n < ntok; ++n) {
+	for (n = (saveptr[0] == ':' ? 0 : 1); n < TOK_LAST; ++n) {
 		switch (n) {
 		case TOK_PREFIX:
-			tok[n] = Ustringtok(&slice, " ", 1);
 			/* Remove the leading ':' character */
-			tok[n].len -= 1;
-			tok[n].mem += 1;
+			++saveptr;
+			tok[n] = m_tok(&saveptr, " ");
 			break;
 		case TOK_ARG:
-			tok[n] = Ustringtok(&slice, ":", 1);
+			tok[n] = m_tok(&saveptr, ":");
 			/* Strip the whitespace */
-			for (i = slice.len - 1; i <= 0; --i)
-				if (isspace(slice.mem[i]))
-					--slice.len;
+			for (i = strlen(saveptr) - 1; i == 0; --i)
+				if (isspace(saveptr[i]))
+					++saveptr;
 			break;
 		case TOK_TEXT:
 			/* Grab the remainder of the text */
-			tok[n] = slice;
+			tok[n] = saveptr;
 			break;
 		default:
-			tok[n] = Ustringtok(&slice, " ", 1);
+			tok[n] = m_tok(&saveptr, " ");
 			break;
 		}
 	}
@@ -490,57 +462,57 @@ main(int argc, char **argv)
 	size_t tmp;
 	/* IRC connection context. */
 	int sockfd;
-	struct strbuf host = SB_INIT;
-	struct strbuf port = SB_INIT;
-	struct strbuf nickname = SB_INIT;
-	struct strbuf realname = SB_INIT;
-	struct strbuf prefix = SB_INIT;
-	struct arg_option opt[6] = {
+	char const *host;
+	char const *port;
+	char const *nickname;
+	char const *realname;
+	char const *prefix;
+	ArgOption opt[6] = {
 		{
-			'v', "version", 0, NULL,
-			version, NULL,
+			'v', "version", version,
+			NULL, NULL,
 			"Show the program version and exit"
 		},
 		{
-			'd', "directory", 1, &prefix,
-			set_strbuf, default_prefix,
-			"Specify the runtime directory to use"
+			'd', "directory", arg_setptr,
+			&prefix, default_prefix,
+			"Specify the runtime prefix directory to use"
 		},
 		{
-			'n', "nickname", 1, &nickname,
-			set_strbuf, default_nickname,
+			'n', "nickname", arg_setptr, 
+			&nickname, default_nickname,
 			"Specify the nickname to login with"
 		},
 		{
-			'r', "realname", 1, &realname,
-			set_strbuf, default_realname,
+			'r', "realname", arg_setptr,
+			&realname, default_realname,
 			"Specify the realname to login with"
 		},
 		{
-			'p', "port", 1, &port,
-			set_strbuf, default_port,
+			'p', "port", arg_setptr,
+			&port, default_port,
 			"Specify the port of the remote irc server"
 		},
 		{
-			'D', "daemonize", 0, NULL,
-			daemonize, NULL,
+			'D', "daemonize", daemonize,
+			NULL, NULL,
 			"Allow the program to daemonize"
 		},
 	};
 
 	if (argc < 2)
-		arg_usage(sizeof(opt) / sizeof(*opt), opt);
-	argv = arg_parse(argv + 1, sizeof(opt) / sizeof(*opt), opt);
+		usage(sizeof(opt) / sizeof(*opt), opt);
+	argv = arg_parse(argv + 1, sizeof(opt) / sizeof(*opt), opt, usage, help);
 	if (!argv[0])
 		LOGFATAL("No host argument provided.\n");
 	/* Append hostname to prefix and slice it */
 	tmp = prefix.len;
 	sb_cat_str(&prefix, "/");
 	sb_cat_str(&prefix, argv[0]);
-	/* Change to the supplied prefix */
 	if (0 > mkdirpath(prefix))
-		return EXIT_FAILURE;
+		LOGFATAL("Unable to create prefix directory\n");
 	LOGINFO("Root directory created.\n");
+	/* Change to the prefix directory */
 	if (0 > chdir(prefix.mem))
 		return EXIT_FAILURE;
 	sb_slice(&host, &prefix, tmp + 1, prefix.len);
@@ -549,7 +521,7 @@ main(int argc, char **argv)
 		LOGFATAL("Could not connect to host \"%s\" on port \"%s\".\n",
 				host.mem, port.mem);
 	LOGINFO("Successfully initialized.\n");
-	login(sockfd, nickname.mem, realname.mem, host.mem);
+	login(sockfd, nickname, realname, host);
 	poll_fds(sockfd);
 	return 0;
 }
