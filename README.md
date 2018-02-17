@@ -1,50 +1,53 @@
-Yorha is a filesystem-based IRC client written in C inspired by suckless "ii",
-but written to have a cleaner, faster, and more customizable codebase.
+# FSIRC
+
+FSIRC is a filesystem-based IRC client written inspired by suckless "ii", but written to have a cleaner codebase, and to be easier to customize.
 
 ## Installation
-First, customize any settings available in 'src/config.h' and 'config.mk' to your liking.
-Second running the following commands:
+First, generate a *config.h*:
+``` bash
+make config.h
+```
+Then edit it and *config.mk* to customize the program. Once both files are configured, run make:
 ``` bash
 make clean all
 sudo make install
 ```
-
-## Running Yorha
-To run the yorha irc client, simply run the binary file with the first argument
-being the name of the irc server to connect to, like so:
+The program can be uninstalled at any time with make as well:
 ``` bash
-./yorha chat.freenode.net
+make uninstall
 ```
-This will, by default, create a directory "/tmp/yorha/chat.freenode.net/" with
-a FIFO file name "in" and an output file named "out" inside of it.
+
+## Running FSIRC
+To run the FSIRC client, simply run the executable with the first argument being the hostname of the irc server to connect to, like so:
+``` bash
+fsirc chat.freenode.net
+```
+This will, by default, create a directory "/tmp/fsirc/chat.freenode.net/" with two files for input and output to the server. The two files are "in" to pipe input to, and "out" for FSIRC to log output to.
 
 ## Sending commands to the client
-Yorha communicates directly through FIFO file communication. For example,
-joining a channel is as simple as writing text to the "in" file:
+FSIRC communicates directly through FIFO file communication. For example, joining a channel is as simple as echoing text to the "in" file:
 ``` bash
-echo '/j #mychannel' > /tmp/yorha/chat.freenode.net/in
+echo '/j #mychannel' > /tmp/fsirc/chat.freenode.net/in
 ```
-This whill create a new channel directory under the path
-"/tmp/yorha/chat.freenode.net/#mychannel" with an "in" and an "out" file.
+This will create a new channel directory under the path
+"/tmp/fsirc/chat.freenode.net/#mychannel" with an "in" and an "out" file for the channel, which can be used to communicate with the channel rather than the server.
+
 Writing a 'me' message:
 ``` bash
-echo '/m uses yorha irc client' > /tmp/yorha/chat.freenode.net/#mychannel/in
+echo '/m uses FSIRC' > /tmp/fsirc/chat.freenode.net/#mychannel/in
 ```
 Leaving a channel:
 ``` bash
-echo '/p #mychannel' > /tmp/yorha/chat.freenode.net/in
+echo '/p #mychannel' > /tmp/fsirc/chat.freenode.net/in
 ```
 To overcome the limitations of my own laziness since I haven't programmed in
-all of the irc commands yet, there is a way to send 'raw' irc protocol to
-servers in case a command is not supported by the client yet:
+all of the irc commands yet, there is a way to send 'raw' irc protocol in messages to in case a command is not supported by the client yet:
 ``` bash
-echo '/r JOIN #mychannel' > /tmp/yorha/chat.freenode.net/in
+echo '/r PING bob' > /tmp/yorha/chat.freenode.net/in
 ```
 
 ## Dependencies
 - C99 compliant compiler
-- libstx (www.toddgaunt.com) (https://www.github.com/toddgaunt/libstx)
 
 ## Note
-Let me know if you like this "ii" rewrite and I'll be more likely to update and
-work on it!
+Feel free to submit pull requests here, or send me an email if you would rather not use github.
