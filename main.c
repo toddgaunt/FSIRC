@@ -183,7 +183,7 @@ channels_log(char const *path, char const *msg)
 	int len = strlen(path);
 	char tmp[len + sizeof("/out")];
 
-	snprintf(tmp, sizeof(tmp), "%s/out", msg);
+	snprintf(tmp, sizeof(tmp), "%s/out", path);
 	if (!(fp = fopen(tmp, "a"))) {
 		LOGERROR("Output file \"%s\" failed to open.\n", tmp);
 	} else {
