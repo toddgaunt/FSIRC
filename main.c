@@ -213,7 +213,7 @@ rstrip(char *str, char const *chs)
 
 	if (0 == len)
 		return 0;
-	while (begin != end && memchr(chs, *begin, len)) {
+	while (begin != end && strchr(chs, *begin)) {
 		++removed;
 		--begin;
 	}
