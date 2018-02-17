@@ -26,7 +26,7 @@
 #include "config.h"
 
 #ifndef PRGM_NAME
-#define PRGM_NAME "yorha"
+#define PRGM_NAME "fsirc"
 #endif
 
 #ifndef VERSION
@@ -37,11 +37,12 @@
 #define PREFIX "/usr/local"
 #endif
 
-#define CHANNELS_MAX 64
-#define MSG_MAX (512 + 1)
 #ifndef PATH_MAX
 #define PATH_MAX 4096
 #endif
+
+#define CHANNELS_MAX 64
+#define MSG_MAX (512 + 1)
 
 /* Logging macros */
 #define LOGINFO(...)\
@@ -111,6 +112,16 @@ help(size_t optc, ArgOption const *optv)
 }
 
 /**
+ * Display program version and then exit.
+ */
+static void
+version()
+{
+	fprintf(stderr, PRGM_NAME" version "VERSION"\n");
+	exit(EXIT_FAILURE);
+}
+
+/**
  * Opens a fifo file named "in" at the end of the given path.
  *
  * Return: The open fifo file descriptor. -1 if an error opening it occured.
@@ -118,11 +129,10 @@ help(size_t optc, ArgOption const *optv)
 static int
 channels_open_fifo(char const *path)
 {
-	int fd = -1;
-	int len = strlen(path);
-	char tmp[len + sizeof("/in")];
+	int fd;
+	char tmp[PATH_MAX];
 
-	snprintf(tmp, sizeof(tmp), "%s/in", path);
+	snprintf(tmp, PATH_MAX, "%s/in", path);
 	remove(tmp);
 	if (0 > (fd = mkfifo(tmp, S_IRWXU))) {
 		LOGERROR("Input fifo creation at \"%s\" failed.\n", tmp);
@@ -182,10 +192,9 @@ static void
 channels_log(char const *path, char const *msg)
 {
 	FILE *fp;
-	int len = strlen(path);
-	char tmp[len + sizeof("/out")];
+	char tmp[PATH_MAX];
 
-	snprintf(tmp, sizeof(tmp), "%s/out", path);
+	snprintf(tmp, PATH_MAX, "%s/out", path);
 	if (!(fp = fopen(tmp, "a"))) {
 		LOGERROR("Output file \"%s\" failed to open.\n", tmp);
 	} else {
@@ -193,16 +202,6 @@ channels_log(char const *path, char const *msg)
 		fprintf(fp, " %s\n", msg);
 		fclose(fp);
 	}
-}
-
-/**
- * Display program version and then exit.
- */
-static void
-version()
-{
-	fprintf(stderr, PRGM_NAME" version "VERSION"\n");
-	exit(EXIT_FAILURE);
 }
 
 static int
@@ -357,7 +356,7 @@ poll_fds(int sockfd)
 	int maxfd;
 	int rv;
 	struct timeval tv;
-	Channels ch = {0};
+	Channels ch = {0, {0}, {0}};
 	char reply[MSG_MAX + 1];
 	char buf[MSG_MAX + 1];
 

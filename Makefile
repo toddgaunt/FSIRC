@@ -6,13 +6,15 @@ include config.mk
 MODULES :=
 SRC := main.c arg.c sys.c
 
+CFLAGS+="-DVERSION=\"$(VERSION)\""
+
 # Project modules
 include $(patsubst %, %/module.mk, $(MODULES))
 
 OBJ := $(patsubst %.c, %.o, $(filter %.c, $(SRC)))
 
 # Standard targets
-all: yorha
+all: options fsirc
 
 options:
 	@echo "Build options:"
@@ -22,17 +24,32 @@ options:
 
 clean:
 	@echo "Cleaning"
-	@rm -rf build
+	@rm -f $(OBJ) fsirc
+
+install:
+	mkdir -p $(DESTDIR)/$(PREFIX)/bin
+	cp -f fsirc $(DESTDIR)/$(PREFIX)/bin
+	chmod 755 $(DESTDIR)/$(PREFIX)/fsirc
+	mkdir -p $(DESTDIR)/$(PREFIX)/man1
+	sed "s/VERSION/$(VERSION)/g" < fsirc.1 > $(DESTDIR)$(MANPREFIX)/man1/fsirc.1
+	chmod 644 $(DESTDIR)$(MANPREFIX)/man1/fsirc.1
+
+uninstall:
+	rm -f $(DESTDIR)$(PREFIX)/bin/fsirc
+	rm -f $(DESTDIR)$(PREFIX)/man1/fsirc.1
 
 # Object Build Rules
-%.o: %.c config.mk
+%.o: %.c config.mk config.h
 	@echo "CC [R] $@"
 	@mkdir -p $(shell dirname $@)
 	@$(CC) $(CFLAGS) -c -o $@ $<
 
 # Targets
-yorha: $(OBJ)
+config.h:
+	@cp config.def.h config.h
+
+fsirc: $(OBJ)
 	@echo "CC $@"
 	@$(CC) -o $@ $^ $(LDFLAGS)
 
-.PHONY: all options clean
+.PHONY: all options clean install uninstall
