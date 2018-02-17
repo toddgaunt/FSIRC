@@ -176,6 +176,7 @@ channels_remove(Channels *ch, char const *path)
 		if (0 == strcmp(ch->paths[i], path)) {
 			// Close any open OS resources.
 			close(ch->fds[i]);
+			free(ch->paths[i]);
 			// Move last channel to removed channel index.
 			ch->fds[i] = ch->fds[ch->n - 1];
 			ch->paths[i] = ch->paths[ch->n - 1];
@@ -442,6 +443,7 @@ tokenize(char const *tok[TOK_LAST], char *buf)
 {
 	size_t i;
 	size_t n;
+	char *tmp;
 	char *saveptr = buf;
 
 	for (n = (saveptr[0] == ':' ? 0 : 1); n < TOK_LAST; ++n) {
@@ -452,7 +454,11 @@ tokenize(char const *tok[TOK_LAST], char *buf)
 			tok[n] = m_tok(&saveptr, " ");
 			break;
 		case TOK_ARG:
-			tok[n] = m_tok(&saveptr, ":");
+			/* Strip the whitespace */
+			tmp = m_tok(&saveptr, ":");
+			rstrip(tmp, " \r\n\t");
+			/* Save the token */
+			tok[n] = tmp;
 			/* Strip the whitespace */
 			for (i = strlen(saveptr) - 1; i == 0; --i)
 				if (isspace(*saveptr))
