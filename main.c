@@ -26,11 +26,11 @@
 #include "config.h"
 
 #ifndef PRGM_NAME
-#define PRGM_NAME "NAME?"
+#define PRGM_NAME "yorha"
 #endif
 
 #ifndef VERSION
-#define VERSION "VERSION?"
+#define VERSION "???"
 #endif
 
 #ifndef PREFIX
@@ -38,7 +38,7 @@
 #endif
 
 #define CHANNELS_MAX 64
-#define MSG_MAX 512
+#define MSG_MAX (512 + 1)
 #ifndef PATH_MAX
 #define PATH_MAX 4096
 #endif
@@ -138,6 +138,8 @@ channels_open_fifo(char const *path)
 static int
 channels_add(Channels *ch, char const *path)
 {
+	if (!path)
+		return -1;
 	ch->paths[ch->n] = malloc(strlen(path) + 1);
 	strcpy(ch->paths[ch->n], path);
 	if (0 > mkdirpath(ch->paths[ch->n])) {
@@ -233,8 +235,11 @@ readline(char dest[MSG_MAX], int fd)
 		dest[i] = ch;
 	}
 	dest[i] = '\0';
-	/* Remove line delimiters as they make logging difficult */
+	/* Remove line delimiters as they make logging difficult, and
+	 * aren't always standard, so its easier to add them again later */
 	rstrip(dest, "\r\n");
+	if (i >= MSG_MAX)
+		return 1;
 	return 0;
 }
 
@@ -377,25 +382,24 @@ poll_fds(int sockfd)
 		}
 		/* Check for messages from remote host */
 		if (FD_ISSET(sockfd, &rd)) {
-			if (0 > readline(buf, sockfd)) {
-				LOGFATAL("Unable to read from socket");
-			} else {
-				/* TMP */
-				fprintf(stderr, "%s\n", buf);
-				/* ENDTMP */
+			do {
+				rv = readline(buf, sockfd);
+				if (0 > rv)
+					LOGFATAL("Unable to read from socket");
 				if (proc_server_cmd(reply, &ch, buf))
 					write(sockfd, reply, strlen(reply));
-			}
+			} while (0 < rv);
 		}
 		for (i = 0; i < ch.n; ++i) {
 			if (FD_ISSET(ch.fds[i], &rd)) {
-				if (0 > readline(buf, ch.fds[i])) {
-					LOGFATAL("Unable to read from channel \"%s\"",
-						ch.paths[i]);
-				} else {
+				do {
+					rv = readline(buf, ch.fds[i]);
+					if (0 > rv)
+						LOGFATAL("Unable to read from channel \"%s\"",
+							ch.paths[i]);
 					if (proc_client_cmd(reply, ch.paths[i], buf))
 						write(sockfd, reply, strlen(reply));
-				}
+				} while (0 < rv);
 			}
 		}
 	}
@@ -407,7 +411,7 @@ m_tok(char **pos, char const *delim)
 	size_t i, j;
 	size_t const n = strlen(delim);
 	size_t const len = strlen(*pos);
-	char *ret = NULL;
+	char *ret = *pos;
 
 	for (i = 0; i < len; ++i) {
 		for (j = i; j < i + n; ++j) {
