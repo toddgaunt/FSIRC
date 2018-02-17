@@ -20,6 +20,7 @@
 #include <sys/un.h>
 #include <time.h>
 #include <unistd.h>
+#include <assert.h>
 
 #include "sys.h"
 #include "arg.h"
@@ -248,6 +249,9 @@ readline(char dest[MSG_MAX], int fd)
 void
 login(const int sockfd, char const *nick, char const *real, char const *host)
 {
+	assert(NULL != nick);
+	assert(NULL != real);
+	assert(NULL != host);
 
 	char buf[MSG_MAX];
 
@@ -385,8 +389,10 @@ poll_fds(int sockfd)
 				rv = readline(buf, sockfd);
 				if (0 > rv)
 					LOGFATAL("Unable to read from socket");
-				if (proc_server_cmd(reply, &ch, buf))
+				LOGINFO("server: %s\n", buf);
+				if (proc_server_cmd(reply, &ch, buf)) {
 					write(sockfd, reply, strlen(reply));
+				}
 			} while (0 < rv);
 		}
 		for (i = 0; i < ch.n; ++i) {
@@ -396,6 +402,7 @@ poll_fds(int sockfd)
 					if (0 > rv)
 						LOGFATAL("Unable to read from channel \"%s\"",
 							ch.paths[i]);
+					LOGINFO("%s: %s\n", ch.paths[i], buf);
 					if (proc_client_cmd(reply, ch.paths[i], buf))
 						write(sockfd, reply, strlen(reply));
 				} while (0 < rv);
@@ -481,22 +488,22 @@ main(int argc, char **argv)
 			"Show the program version and exit"
 		},
 		{
-			'd', "directory", arg_setptr,
+			'd', "directory", arg_setstr,
 			&directory, default_directory,
 			"Specify the runtime prefix directory to use"
 		},
 		{
-			'n', "nickname", arg_setptr, 
+			'n', "nickname", arg_setstr, 
 			&nickname, default_nickname,
 			"Specify the nickname to login with"
 		},
 		{
-			'r', "realname", arg_setptr,
+			'r', "realname", arg_setstr,
 			&realname, default_realname,
 			"Specify the realname to login with"
 		},
 		{
-			'p', "port", arg_setptr,
+			'p', "port", arg_setstr,
 			&port, default_port,
 			"Specify the port of the remote irc server"
 		},

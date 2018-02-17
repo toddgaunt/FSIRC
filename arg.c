@@ -21,7 +21,7 @@ arg_setnot(int *dest)
 }
 
 void
-arg_setptr(void const **dest, char const *str)
+arg_setstr(char const **dest, char const *str)
 {
 	*dest = str;
 }
@@ -219,6 +219,7 @@ opt_flag_callback(
 					optv[i].flag);
 					usage(optc, optv);
 				}
+				optv[i].callback(optv[i].dest, pp[0]);
 			} else {
 				optv[i].callback(optv[i].dest, pp[0]);
 				++pp;

@@ -33,7 +33,7 @@ void arg_print_usage(size_t optc, ArgOption const *optv);
  * is returned upon an error during the callback. */
 void arg_setnot(int *dest);
 void arg_setflag(int *dest);
-void arg_setptr(void const **dest, char const *argv);
+void arg_setstr(char const **dest, char const *argv);
 void arg_setlong(long *dest, char const *argv);
 void arg_setdouble(double *dest, char const *argv);
 
