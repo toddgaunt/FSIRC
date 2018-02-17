@@ -11,6 +11,7 @@
 !*.txt
 !*.sh
 !*.mk
+!*.1
 
 # Whitelist specific filenames
 !*.gitignore

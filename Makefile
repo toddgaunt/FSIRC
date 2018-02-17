@@ -27,16 +27,16 @@ clean:
 	@rm -f $(OBJ) fsirc
 
 install:
-	mkdir -p $(DESTDIR)/$(PREFIX)/bin
-	cp -f fsirc $(DESTDIR)/$(PREFIX)/bin
-	chmod 755 $(DESTDIR)/$(PREFIX)/fsirc
-	mkdir -p $(DESTDIR)/$(PREFIX)/man1
-	sed "s/VERSION/$(VERSION)/g" < fsirc.1 > $(DESTDIR)$(MANPREFIX)/man1/fsirc.1
-	chmod 644 $(DESTDIR)$(MANPREFIX)/man1/fsirc.1
+	mkdir -p $(DESTDIR)$(PREFIX)/bin
+	cp -f fsirc $(DESTDIR)$(PREFIX)/bin
+	chmod 755 $(DESTDIR)$(PREFIX)/bin/fsirc
+	mkdir -p $(DESTDIR)$(PREFIX)/man/man1
+	sed "s/VERSION/$(VERSION)/g" < fsirc.1 > $(DESTDIR)$(PREFIX)/man/man1/fsirc.1
+	chmod 644 $(DESTDIR)$(PREFIX)/man/man1/fsirc.1
 
 uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/bin/fsirc
-	rm -f $(DESTDIR)$(PREFIX)/man1/fsirc.1
+	rm -f $(DESTDIR)$(PREFIX)/man/man1/fsirc.1
 
 # Object Build Rules
 %.o: %.c config.mk config.h

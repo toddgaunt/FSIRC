@@ -1,0 +1,40 @@
+.TH FSIRC 1 fsirc VERSION
+.SH NAME
+fsirc - File fetching utility.
+
+.SH SYNOPSIS
+.B fsirc [OPTION] hostname
+.PP
+
+.SH DESCRIPTION
+Connect to an IRC server and interact through it with the filesystem.
+
+.SH OPTIONS
+.TP
+.BR \-h , \ \-\-help
+Show a help message and exit.
+.TP
+.BR \-v , \ \-\-version
+Show program version information and exit.
+.TP
+.BR \-d , \ \-\-directory = \fI<directory>\fP
+Set the directory to create the runtime files in; The default is /tmp/fsirc
+.TP
+.BR \-n , \ \-\-nickname = \fI<nickname>\fP
+Set the nickname to use for this session
+.TP
+.BR \-r , \ \-\-realname = \fI<realname>\fP
+Set the realname to use for this session
+.TP
+.BR \-p , \ \-\-port = \fI<port>\fP
+Set the port to use for connecting to the host
+.TP
+.BR \-D , \ \-\-deamonize
+Make FSIRC fork to the background on start
+
+.SH BUGS
+Please report bugs by emailing me at toddgaunt@protonmail.ch, or fix them
+yourself and make a pull request to https://www.github.com/toddgaunt/fsirc.
+
+.SH AUTHOR
+This man page and fsirc itself were originally authored by Todd Gaunt.
