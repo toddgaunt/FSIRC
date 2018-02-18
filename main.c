@@ -23,12 +23,7 @@
 #include <assert.h>
 
 #include "sys.h"
-#include "arg.h"
 #include "config.h"
-
-#ifndef PRGM_NAME
-#define PRGM_NAME "fsirc"
-#endif
 
 #ifndef VERSION
 #define VERSION "???"
@@ -48,25 +43,29 @@
 /* Logging macros */
 #define LOGINFO(...)\
 	do { \
-		logtime(stderr); \
-		fprintf(stderr, " "PRGM_NAME": info: "__VA_ARGS__); \
+		fprintf(stderr, "%s", argv0); \
+		fprintf(stderr, ": info: "__VA_ARGS__); \
 	} while (0)
 
 #define LOGERROR(...)\
 	do { \
-		logtime(stderr); \
-		fprintf(stderr, " "PRGM_NAME": error: "__VA_ARGS__); \
+		fprintf(stderr, "%s", argv0); \
+		fprintf(stderr, ": error: "__VA_ARGS__); \
 	} while (0)
 
 #define LOGFATAL(...)\
 	do { \
-		logtime(stderr); \
-		fprintf(stderr, " "PRGM_NAME": fatal: "__VA_ARGS__); \
+		fprintf(stderr, "%s", argv0); \
+		fprintf(stderr, ": fatal: "__VA_ARGS__); \
 		exit(EXIT_FAILURE); \
 	} while (0)
 
 enum {
-	TOK_PREFIX = 0,
+	/* Prefix */
+	TOK_NICK = 0,
+	TOK_USER,
+	TOK_HOST,
+	/* Commands */
 	TOK_CMD,
 	TOK_ARG,
 	TOK_TEXT,
@@ -85,30 +84,24 @@ static void channels_log(char const *path, char const *msg);
 void login(const int sockfd, char const *nick, char const *real, char const *host);
 void logtime(FILE *fp);
 static void poll_fds(int sockfd);
-bool proc_server_cmd(char reply[MSG_MAX], Channels *ch, char const *msg);
+bool proc_server_cmd(char reply[MSG_MAX], Channels *ch, char buf[MSG_MAX]);
 bool proc_client_cmd(char reply[MSG_MAX], char const *name, char const *msg);
 static int readline(char dest[MSG_MAX], int fd);
-void tokenize(char const *tok[TOK_LAST], char *buf);
+size_t tokenize(char const *tok[TOK_LAST], char *buf);
+
+/* Program name */
+char const *argv0;
 
 /* Root channel path */
 char const *root_path = ".";
 
 /* Display a usage message and then exit */
 static void
-usage(size_t optc, ArgOption const *optv)
+usage()
 {
-	arg_print_usage(optc, optv);
-	fprintf(stderr, " host\n");
-	exit(EXIT_FAILURE);
-}
-
-/* Display a help message and then exit */
-static void
-help(size_t optc, ArgOption const *optv)
-{
-	arg_print_usage(optc, optv);
-	fprintf(stderr, " host\n");
-	arg_print_help(optc, optv);
+	printf("usage: %s [-v <version>] [-d <dir>] [-n <nickname>]"
+			"[-r <realname>] [-p <port>] [-D] <host>",
+			argv0);
 	exit(EXIT_FAILURE);
 }
 
@@ -118,7 +111,7 @@ help(size_t optc, ArgOption const *optv)
 static void
 version()
 {
-	fprintf(stderr, PRGM_NAME" version "VERSION"\n");
+	fprintf(stderr, "%s version "VERSION"\n", argv0);
 	exit(EXIT_FAILURE);
 }
 
@@ -271,7 +264,7 @@ logtime(FILE *fp)
 
 	t = time(NULL);
 	tm = localtime(&t);
-	strftime(buf, sizeof(buf), "%Y-%m-%d %T", tm);
+	strftime(buf, sizeof(buf), date_format, tm);
 	fputs(buf, fp);
 }
 
@@ -279,25 +272,32 @@ logtime(FILE *fp)
  * Process and incoming message from the IRC server connection.
  */
 bool
-proc_server_cmd(char reply[MSG_MAX], Channels *ch, char const *msg)
+proc_server_cmd(char reply[MSG_MAX], Channels *ch, char buf[MSG_MAX])
 {
 	char tmp[MSG_MAX];
-	char const *tok[TOK_LAST] = {0};
+	char const *argv[TOK_LAST] = {0};
+	char const *channel;
+	size_t argc;
 
-	strncpy(tmp, msg, MSG_MAX);
-	tokenize(tok, tmp);
-	if (0 == strcmp(tok[TOK_CMD], "PING")) {
-		snprintf(reply, MSG_MAX, "PONG %s\r\n", tok[TOK_ARG]);
+	strncpy(tmp, buf, MSG_MAX);
+	argc = tokenize(argv, tmp);
+	channel = root_path;
+	if (0 == strcmp(argv[TOK_CMD], "PING")) {
+		snprintf(reply, MSG_MAX, "PONG %s\r\n", argv[TOK_ARG]);
 		return true;
-	} else if (0 == strcmp(tok[TOK_CMD], "PART")) {
-		channels_remove(ch, tok[TOK_ARG]);
-	} else if (0 == strcmp(tok[TOK_CMD], "JOIN")) {
-		channels_add(ch, tok[TOK_ARG]);
-	} else if (0 == strcmp(tok[TOK_CMD], "PRIVMSG")) {
-		channels_log(tok[TOK_ARG], msg);
+	} else if (0 == strcmp(argv[TOK_CMD], "JOIN")) {
+		channels_add(ch, argv[TOK_ARG]);
+		snprintf(buf,MSG_MAX, "Joining %s", argv[TOK_ARG]);
+	} else if (0 == strcmp(argv[TOK_CMD], "PART")) {
+		channels_remove(ch, argv[TOK_ARG]);
+		snprintf(buf,MSG_MAX, "Parting from %s", argv[TOK_ARG]);
+	} else if (0 == strcmp(argv[TOK_CMD], "PRIVMSG")) {
+		channel = argv[TOK_ARG];
+		snprintf(buf, MSG_MAX, "<%s> %s\n", argv[TOK_NICK], argv[TOK_TEXT]);
 	} else {
-		channels_log(root_path, msg);
+		snprintf(buf, MSG_MAX, "<%s> %s\n", argv[TOK_NICK], argv[TOK_TEXT]);
 	}
+	channels_log(channel, buf);
 	return false;
 }
 
@@ -340,6 +340,10 @@ proc_client_cmd(char reply[MSG_MAX], char const *path, char const *msg)
 		case 'r':
 			snprintf(reply, MSG_MAX, "%s\r\n", slice);
 			break;
+		/* Send a ping */
+		case 'P': 
+			snprintf(reply, MSG_MAX, "PING %s\r\n", slice);
+			break;
 		default: 
 			LOGERROR("Invalid command entered\n.");
 			return false;
@@ -362,8 +366,8 @@ poll_fds(int sockfd)
 	int rv;
 	struct timeval tv;
 	Channels ch = {0, {0}, {0}};
-	char reply[MSG_MAX + 1];
-	char buf[MSG_MAX + 1];
+	char reply[MSG_MAX];
+	char buf[MSG_MAX];
 
 	/* Add the root channel for the connection */
 	channels_add(&ch, root_path);
@@ -436,9 +440,11 @@ m_tok(char **pos, char const *delim)
 }
 
 /**
- * TODO(todd): Document this.
+ * Tokenize an IRC message into parts.
+ *
+ * [ ':' prefix SPACE ] command params* "\r\n"
  */
-void
+size_t
 tokenize(char const *tok[TOK_LAST], char *buf)
 {
 	size_t i;
@@ -446,12 +452,13 @@ tokenize(char const *tok[TOK_LAST], char *buf)
 	char *tmp;
 	char *saveptr = buf;
 
-	for (n = (saveptr[0] == ':' ? 0 : 1); n < TOK_LAST; ++n) {
+	for (n = (saveptr[0] == ':' ? TOK_NICK : TOK_CMD); n < TOK_LAST; ++n) {
 		switch (n) {
-		case TOK_PREFIX:
-			/* Remove the leading ':' character */
-			++saveptr;
+		case TOK_NICK:
+			/* Ignore the leading ':' character */
+			saveptr += 1;
 			tok[n] = m_tok(&saveptr, " ");
+			n = TOK_CMD - 1;
 			break;
 		case TOK_ARG:
 			/* Strip the whitespace */
@@ -473,59 +480,73 @@ tokenize(char const *tok[TOK_LAST], char *buf)
 			break;
 		}
 	}
+	return 0;
 }
 
 int
 main(int argc, char **argv) 
 {
+	/* Argument parsing */
+	int i;
+	char const *opt_arg;
 	/* IRC connection context. */
 	int sockfd;
 	char prefix[PATH_MAX];
 	/* Arguments */
-	char const *host;
-	char const *port;
-	char const *nickname;
-	char const *realname;
-	char const *directory;
-	ArgOption opt[6] = {
-		{
-			'v', "version", version,
-			NULL, NULL,
-			"Show the program version and exit"
-		},
-		{
-			'd', "directory", arg_setstr,
-			&directory, default_directory,
-			"Specify the runtime prefix directory to use"
-		},
-		{
-			'n', "nickname", arg_setstr, 
-			&nickname, default_nickname,
-			"Specify the nickname to login with"
-		},
-		{
-			'r', "realname", arg_setstr,
-			&realname, default_realname,
-			"Specify the realname to login with"
-		},
-		{
-			'p', "port", arg_setstr,
-			&port, default_port,
-			"Specify the port of the remote irc server"
-		},
-		{
-			'D', "daemonize", daemonize,
-			NULL, NULL,
-			"Allow the program to daemonize"
-		},
-	};
+	char const *host = NULL;
+	char const *port = default_port;
+	char const *directory = default_directory;
+	char nickname[32];
+	char realname[32];
 
+	strncpy(nickname, default_nickname, sizeof(nickname));
+	strncpy(realname, default_realname, sizeof(realname));
+	/* Set the program name */
+	argv0 = *argv;
 	if (argc < 2)
-		usage(sizeof(opt) / sizeof(*opt), opt);
-	argv = arg_parse(argv + 1, sizeof(opt) / sizeof(*opt), opt, usage, help);
-	if (!argv[0])
-		LOGFATAL("No host argument provided.\n");
-	host = argv[0];
+		usage();
+	/* Argument parsing */
+	for (i = 1; i < argc; ++i) {
+		if ('-' == argv[i][0]) {
+			argv[i] += 1;
+			while ('\0' != argv[i][0]) {
+				argv[i] += 1;
+				if ('\0' == argv[i][0]) {
+					opt_arg = argv[i + 1];
+				} else {
+					opt_arg = argv[0];
+				}
+				switch (argv[i][-1]) {
+				case 'v':
+					version();
+					break;
+				case 'd':
+					if (!opt_arg) usage();
+					directory = opt_arg;
+					break;
+				case 'n':
+					if (!opt_arg) usage();
+					strncpy(nickname, opt_arg, sizeof(nickname));
+					break;
+				case 'r':
+					if (!opt_arg) usage();
+					strncpy(realname, opt_arg, sizeof(realname));
+					break;
+				case 'p':
+					if (!opt_arg) usage();
+					port = opt_arg;
+					break;
+				case 'D':
+					daemonize();
+					break;
+				}
+			}
+		} else {
+			host = argv[i];
+		}
+	}
+	if (!host)
+		usage();
 	/* Create the prefix from the directoryAppend hostname to prefix and slice it */
 	snprintf(prefix, PATH_MAX, "%s/%s", directory, host);
 	if (0 > mkdirpath(prefix))

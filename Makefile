@@ -4,7 +4,7 @@
 include config.mk
 
 MODULES :=
-SRC := main.c arg.c sys.c
+SRC := main.c sys.c
 
 CFLAGS+="-DVERSION=\"$(VERSION)\""
 
@@ -14,7 +14,7 @@ include $(patsubst %, %/module.mk, $(MODULES))
 OBJ := $(patsubst %.c, %.o, $(filter %.c, $(SRC)))
 
 # Standard targets
-all: options fsirc
+all: options fsircc
 
 options:
 	@echo "Build options:"
@@ -24,19 +24,19 @@ options:
 
 clean:
 	@echo "Cleaning"
-	@rm -f $(OBJ) fsirc
+	@rm -f $(OBJ) fsircc
 
 install:
 	mkdir -p $(DESTDIR)$(PREFIX)/bin
-	cp -f fsirc $(DESTDIR)$(PREFIX)/bin
-	chmod 755 $(DESTDIR)$(PREFIX)/bin/fsirc
+	cp -f fsircc $(DESTDIR)$(PREFIX)/bin
+	chmod 755 $(DESTDIR)$(PREFIX)/bin/fsircc
 	mkdir -p $(DESTDIR)$(PREFIX)/man/man1
-	sed "s/VERSION/$(VERSION)/g" < fsirc.1 > $(DESTDIR)$(PREFIX)/man/man1/fsirc.1
-	chmod 644 $(DESTDIR)$(PREFIX)/man/man1/fsirc.1
+	sed "s/VERSION/$(VERSION)/g" < fsircc.1 > $(DESTDIR)$(PREFIX)/man/man1/fsirc.1
+	chmod 644 $(DESTDIR)$(PREFIX)/man/man1/fsircc.1
 
 uninstall:
-	rm -f $(DESTDIR)$(PREFIX)/bin/fsirc
-	rm -f $(DESTDIR)$(PREFIX)/man/man1/fsirc.1
+	rm -f $(DESTDIR)$(PREFIX)/bin/fsircc
+	rm -f $(DESTDIR)$(PREFIX)/man/man1/fsircc.1
 
 # Object Build Rules
 %.o: %.c config.mk config.h
@@ -48,7 +48,7 @@ uninstall:
 config.h:
 	@cp config.def.h config.h
 
-fsirc: $(OBJ)
+fsircc: $(OBJ)
 	@echo "CC $@"
 	@$(CC) -o $@ $^ $(LDFLAGS)
 

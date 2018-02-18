@@ -1,0 +1,40 @@
+.TH FSIRC 1 fsircc VERSION
+.SH NAME
+fsircc - File System IRC Client
+
+.SH SYNOPSIS
+.B fsircc [OPTION] hostname
+.PP
+
+.SH DESCRIPTION
+Connect to an IRC server and interact through it with the filesystem.
+
+.SH OPTIONS
+.TP
+.BI \-d " directory"
+Set the directory to create the runtime files in; The default is /tmp/fsircc
+.TP
+.BI \-n " nickname"
+Set the nickname to use for this session
+.TP
+.BI \-p " port"
+Set the port to use for connecting to the host
+.TP
+.B \-h
+Show a help message and exit.
+.TP
+.BI \-r " realname"
+Set the realname to use for this session
+.TP
+.B \-v 
+Show program version information and exit.
+.TP
+.B \-D
+Daeominze FSIRC by forking it to the background on start
+
+.SH BUGS
+Please report bugs by emailing me at toddgaunt@protonmail.ch, or fix them
+yourself and make a pull request to https://www.github.com/toddgaunt/fsircc.
+
+.SH AUTHOR
+This man page and fsircc itself were originally authored by Todd Gaunt.
