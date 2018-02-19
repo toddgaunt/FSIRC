@@ -1,4 +1,4 @@
-.TH FSIRC 1 fsircc VERSION
+.TH FSIRCC 1 fsircc VERSION
 .SH NAME
 fsircc - File System IRC Client
 
@@ -30,7 +30,38 @@ Set the realname to use for this session
 Show program version information and exit.
 .TP
 .B \-D
-Daeominze FSIRC by forking it to the background on start
+Daeominze FSIRCC by forking it to the background on start
+
+.SH COMMANDS
+Commands are piped to the \fIin\fP files created in the runtime directory
+by FSIRCC. Omitting any command simply sends a PRIVMSG to the channel the 'in'
+file is connected to. 
+.TP
+.I message
+Send a message to the current channel
+.TP
+.BI /a " message"
+Set your away message
+.TP
+.BI /j " channel"
+Join a channel
+.TP
+.BI /m " message"
+Send an ACTION message to the channel
+.TP
+.BI /n " nickname"
+Change your nickname
+.TP
+.BI /p " channel"
+Part from a channel
+.TP
+.BI /r " protocol"
+Send raw IRC protocol; Useful if a command is not supported by fsircc
+
+.SH EXAMPLES
+Join the #freenode channel on freenode:
+.TP
+echo '/j #freenode' > /tmp/fsircc/chat.freenode.net/in
 
 .SH BUGS
 Please report bugs by emailing me at toddgaunt@protonmail.ch, or fix them
