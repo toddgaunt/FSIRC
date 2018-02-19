@@ -23,7 +23,6 @@
 #include <assert.h>
 
 #include "sys.h"
-#include "config.h"
 
 #ifndef VERSION
 #define VERSION "???"
@@ -39,6 +38,10 @@
 
 #define CHANNELS_MAX 64
 #define MSG_MAX (512 + 1)
+#define IRC_NAME_MAX 32
+#define IRC_CHAN_MAX 200
+
+#include "config.h"
 
 /* Logging macros */
 #define LOGINFO(...)\
@@ -60,37 +63,56 @@
 		exit(EXIT_FAILURE); \
 	} while (0)
 
-enum {
+typedef enum {
 	/* Prefix */
 	TOK_NICK = 0,
 	TOK_USER,
 	TOK_HOST,
 	/* Commands */
 	TOK_CMD,
+	TOK_CHAN, /* First argument is often the channel, but not always */
 	TOK_ARG,
 	TOK_TEXT,
 	TOK_LAST,
+} Token;
+
+typedef struct Channel Channel;
+struct Channel {
+	size_t n;
+	int fd;
+	char name[IRC_CHAN_MAX];
+	char inpath[PATH_MAX];
+	char outpath[PATH_MAX];
+	Channel *next;
+	Channel *prev;
 };
 
 typedef struct {
-	size_t n;
-	int fds[CHANNELS_MAX];
-	char *paths[CHANNELS_MAX];
-} Channels;
+	int sockfd;
+	char nickname[32];
+	char realname[32];
+	Channel *chan;
+	/* Message buffer used for communications */
+	char buf[MSG_MAX];
+} ServerConnection;
 
-static int channels_add(Channels *ch, char const *path);
-static int channels_remove(Channels *ch, char const *path);
-static void channels_log(char const *path, char const *msg);
+static Channel *channel_create(char const *name);
+static void channel_destroy(Channel const *garbage);
+static Channel *channel_find(Channel *root, char const *name);
+static void channel_link(Channel *new, Channel *prev, Channel *next);
+static void channel_log(Channel *ch, char const *msg);
+static Channel *channel_join(Channel *root, char const *name);
+static void channel_part(Channel *root, char const *name);
 void login(const int sockfd, char const *nick, char const *real, char const *host);
 void logtime(FILE *fp);
-static void poll_fds(int sockfd);
-bool proc_server_cmd(char reply[MSG_MAX], Channels *ch, char buf[MSG_MAX]);
+static void poll_fds(ServerConnection *sc);
+bool proc_server_cmd(char reply[MSG_MAX], ServerConnection *sc);
 bool proc_client_cmd(char reply[MSG_MAX], char const *name, char const *msg);
 static int readline(char dest[MSG_MAX], int fd);
 size_t tokenize(char const *tok[TOK_LAST], char *buf);
 
 /* Program name */
-char const *argv0;
+char const *argv0 = "";
 
 /* Root channel path */
 char const *root_path = ".";
@@ -100,7 +122,7 @@ static void
 usage()
 {
 	printf("usage: %s [-v <version>] [-d <dir>] [-n <nickname>]"
-			"[-r <realname>] [-p <port>] [-D] <host>",
+			"[-r <realname>] [-p <port>] [-D] <host>\n",
 			argv0);
 	exit(EXIT_FAILURE);
 }
@@ -115,83 +137,97 @@ version()
 	exit(EXIT_FAILURE);
 }
 
-/**
- * Opens a fifo file named "in" at the end of the given path.
- *
- * Return: The open fifo file descriptor. -1 if an error opening it occured.
- */
-static int
-channels_open_fifo(char const *path)
+static Channel *
+channel_create(char const *name)
 {
-	int fd;
-	char tmp[PATH_MAX];
+	Channel *new = calloc(1, sizeof(*new));
 
-	snprintf(tmp, PATH_MAX, "%s/in", path);
-	remove(tmp);
-	if (0 > (fd = mkfifo(tmp, S_IRWXU))) {
-		LOGERROR("Input fifo creation at \"%s\" failed.\n", tmp);
-		return -1;
-	}
-	LOGINFO("Input fifo created at \"%s\" successfully.\n", tmp);
-	return open(tmp, O_RDWR | O_NONBLOCK, 0);
+	strncpy(new->name, name, IRC_CHAN_MAX);
+	snprintf(new->inpath, PATH_MAX, "%s/in", new->name);
+	snprintf(new->outpath, PATH_MAX, "%s/out", new->name);
+	if (0 > mkdirpath(new->name))
+		LOGFATAL("Unable to create directory for channel %s\n", new->name);
+	remove(new->inpath);
+	if (0 > mkfifo(new->inpath, S_IRWXU))
+		LOGFATAL("Unable to create input file for channel %s\n", new->name);
+	new->fd = open(new->inpath, O_RDWR | O_NONBLOCK, 0);
+	if (0 > new->fd)
+		LOGFATAL("Unable to open input file for channel %s\n", new->name);
+	return new;
 }
 
-/**
- * Add a channel to a Channels struct, resize it if necessary.
- */
-static int
-channels_add(Channels *ch, char const *path)
+static void
+channel_destroy(Channel const *garbage)
 {
-	if (!path)
-		return -1;
-	ch->paths[ch->n] = malloc(strlen(path) + 1);
-	strcpy(ch->paths[ch->n], path);
-	if (0 > mkdirpath(ch->paths[ch->n])) {
-		LOGERROR("Directory creation for path \"%s\" failed.\n",
-				ch->paths[ch->n]);
-		return -1;
-	}
-	if (0 > (ch->fds[ch->n] = channels_open_fifo(ch->paths[ch->n])))
-		return -1;
-	ch->n += 1;
-	return 0;
+
+	garbage->next->prev = garbage->prev;
+	garbage->prev->next = garbage->next;
+	close(garbage->fd);
+	free((void *)garbage);
 }
 
-/**
- * Remove a channel from a Channels struct.
- */
-static int
-channels_remove(Channels *ch, char const *path)
+static void
+channel_link(Channel *new, Channel *prev, Channel *next)
 {
-	size_t i;
+	assert(NULL != new);
+	assert(NULL != prev);
+	assert(NULL != next);
+		
+	new->next = next;
+	new->prev = prev;
+	prev->next = new;
+	next->prev = new;
+}
 
-	for (i = 0; i < ch->n; ++i) {
-		if (0 == strcmp(ch->paths[i], path)) {
-			// Close any open OS resources.
-			close(ch->fds[i]);
-			free(ch->paths[i]);
-			// Move last channel to removed channel index.
-			ch->fds[i] = ch->fds[ch->n - 1];
-			ch->paths[i] = ch->paths[ch->n - 1];
-			ch->n -= 1;
-			return 0;
+static Channel *
+channel_find(Channel *root, char const *name)
+{
+	Channel *cp = root;
+
+	cp = root;
+	do {
+		if (0 == strcmp(name, cp->name))
+			return cp;
+		cp = cp->next;
+	} while (cp != root);
+	return NULL;
+}
+
+static Channel *
+channel_join(Channel *root, char const *name)
+{
+	Channel *new;
+	
+	if (!root) {
+		new = channel_create(name);
+		channel_link(new, new, new);
+	} else {
+		new = channel_find(root, name);
+		if (!new) {
+			new = channel_create(name);
+			channel_link(new, root->prev, root);
 		}
 	}
-	return -1;
+	return new;
 }
 
-/**
- * Log to the output file with the given channel name.
- */
 static void
-channels_log(char const *path, char const *msg)
+channel_part(Channel *root, char const *name)
+{
+	Channel const *garbage;
+	
+	garbage = channel_find(root, name);
+	if (garbage)
+		channel_destroy(garbage);
+}
+
+static void
+channel_log(Channel *chan, char const *msg)
 {
 	FILE *fp;
-	char tmp[PATH_MAX];
 
-	snprintf(tmp, PATH_MAX, "%s/out", path);
-	if (!(fp = fopen(tmp, "a"))) {
-		LOGERROR("Output file \"%s\" failed to open.\n", tmp);
+	if (!(fp = fopen(chan->outpath, "a"))) {
+		LOGERROR("Output file \"%s\" failed to open.\n", chan->outpath);
 	} else {
 		logtime(fp);
 		fprintf(fp, " %s\n", msg);
@@ -272,32 +308,53 @@ logtime(FILE *fp)
  * Process and incoming message from the IRC server connection.
  */
 bool
-proc_server_cmd(char reply[MSG_MAX], Channels *ch, char buf[MSG_MAX])
+proc_server_cmd(char reply[MSG_MAX], ServerConnection *sc)
 {
 	char tmp[MSG_MAX];
 	char const *argv[TOK_LAST] = {0};
-	char const *channel;
 	size_t argc;
+	char const *channel = NULL;
 
-	strncpy(tmp, buf, MSG_MAX);
+	strncpy(tmp, sc->buf, MSG_MAX);
 	argc = tokenize(argv, tmp);
-	channel = root_path;
-	if (0 == strcmp(argv[TOK_CMD], "PING")) {
-		snprintf(reply, MSG_MAX, "PONG %s\r\n", argv[TOK_ARG]);
+	if (0 == strcmp("PING", argv[TOK_CMD])) {
+		snprintf(reply, MSG_MAX, "PONG %s\r\n", argv[TOK_TEXT]);
 		return true;
-	} else if (0 == strcmp(argv[TOK_CMD], "JOIN")) {
-		channels_add(ch, argv[TOK_ARG]);
-		snprintf(buf,MSG_MAX, "Joining %s", argv[TOK_ARG]);
-	} else if (0 == strcmp(argv[TOK_CMD], "PART")) {
-		channels_remove(ch, argv[TOK_ARG]);
-		snprintf(buf,MSG_MAX, "Parting from %s", argv[TOK_ARG]);
-	} else if (0 == strcmp(argv[TOK_CMD], "PRIVMSG")) {
-		channel = argv[TOK_ARG];
-		snprintf(buf, MSG_MAX, "<%s> %s\n", argv[TOK_NICK], argv[TOK_TEXT]);
+	} else if (0 == strcmp("JOIN", argv[TOK_CMD])) {
+		snprintf(sc->buf, MSG_MAX, "--> %s joined %s", argv[TOK_NICK], argv[TOK_ARG]);
+	} else if (0 == strcmp("PART", argv[TOK_CMD])) {
+		snprintf(sc->buf, MSG_MAX, "<-- %s parted from %s", argv[TOK_NICK], argv[TOK_ARG]);
+	} else if (0 == strcmp("PRIVMSG", argv[TOK_CMD])) {
+		snprintf(sc->buf, MSG_MAX, "<%s> %s\n", argv[TOK_NICK], argv[TOK_TEXT]);
+	} else if (0 == strcmp("NOTICE", argv[TOK_CMD])) {
+		snprintf(sc->buf, MSG_MAX, "-!- %s", argv[TOK_TEXT]);
+	} else if (0 == strcmp("MODE", argv[TOK_CMD])) {
+		snprintf(sc->buf, MSG_MAX, "-!- %s changed mode %s -> %s %s",
+				argv[TOK_NICK],
+				argv[TOK_CHAN],
+				argv[TOK_ARG],
+				argv[TOK_TEXT]);
+		channel = root_path;
+	} else if (0 == strcmp("KICK", argv[TOK_CMD])) {
+		snprintf(sc->buf, MSG_MAX, "-!- %s kicked %s (%s)", argv[TOK_NICK], argv[TOK_ARG], argv[TOK_TEXT]);
 	} else {
-		snprintf(buf, MSG_MAX, "<%s> %s\n", argv[TOK_NICK], argv[TOK_TEXT]);
+		channel = root_path;
+		/* Can't read this command */
+		LOGINFO("Cannot read command: %s\n", argv[TOK_CMD]);
+		return false;
 	}
-	channels_log(channel, buf);
+
+	if (!channel)  {
+		if ('\0' == argv[TOK_CHAN][0]
+		|| 0 == strcmp("*", argv[TOK_CHAN])) {
+			channel = root_path;
+		} else {
+			channel = argv[TOK_CHAN];
+		}
+	}
+
+	sc->chan = channel_join(sc->chan, channel);
+	channel_log(sc->chan, sc->buf);
 	return false;
 }
 
@@ -305,44 +362,53 @@ proc_server_cmd(char reply[MSG_MAX], Channels *ch, char buf[MSG_MAX])
  * Process a Ustring into a message to be sent to an IRC channel.
  */
 bool
-proc_client_cmd(char reply[MSG_MAX], char const *path, char const *msg)
+proc_channel_cmd(char reply[MSG_MAX], Channel *chan, ServerConnection *sc)
 {
 	size_t i;
-	size_t msg_len = strlen(msg);
-	char const *slice;
+	size_t buf_len = strlen(sc->buf);
+	char const *body;
 
-	if (msg[0] != '/') {
-		LOGINFO("Sending message to \"%s\"", path);
-		snprintf(reply, MSG_MAX, "PRIVMSG %s :%s\r\n", path, msg);
-	} else if (msg[0] == '/' && msg_len > 1) {
+	if (sc->buf[0] != '/') {
+		snprintf(reply, MSG_MAX, "[%s] %s\n", sc->nickname, sc->buf);
+		channel_log(chan, reply);
+		snprintf(reply, MSG_MAX, "PRIVMSG %s :%s\r\n", chan->name, sc->buf);
+	} else if (sc->buf[0] == '/' && buf_len > 2) {
 		/* Remove leading whitespace. */
-		for (i = 0; i < msg_len && msg[i] != ' '; ++i)
+		for (i = 2; i < buf_len && isspace(sc->buf[i]); ++i)
 			;
-		slice = msg + i;
-		switch (msg[1]) {
+		body = &sc->buf[i];
+		printf("body: \"%s\"\n", body);
+		switch (sc->buf[1]) {
 		/* Join a channel */
 		case 'j':
-			snprintf(reply, MSG_MAX, "JOIN %s\r\n", slice);
+			snprintf(reply, MSG_MAX, "JOIN %s\r\n", body);
 			break;
 		/* Part from a channel */
 		case 'p': 
-			snprintf(reply, MSG_MAX, "PART %s\r\n", slice);
+			snprintf(reply, MSG_MAX, "PART %s\r\n", body);
 			break;
 		/* Send a "me" message */
 		case 'm':
-			snprintf(reply, MSG_MAX, "ME %s\r\n", slice);
+			snprintf(reply, MSG_MAX, "* %s %s\n", sc->nickname, body);
+			channel_log(chan, reply);
+			snprintf(reply, MSG_MAX, "PRIVMSG %s :\001ACTION %s\001\r\n",
+					chan->name, body);
 			break;
+		/* Change nick name */
+		case 'n':
+			strncpy(sc->nickname, body, IRC_NAME_MAX);
+			snprintf(reply, MSG_MAX, "NICK %s\r\n", body);
 		/* Set status to "away" */
 		case 'a':
-			snprintf(reply, MSG_MAX, "AWAY %s\r\n", slice);
+			if (3 < buf_len) {
+				snprintf(reply, MSG_MAX, "AWAY\r\n");
+			} else {
+				snprintf(reply, MSG_MAX, "AWAY :%s\r\n", body);
+			}
 			break;
 		/* Send raw IRC protocol */
 		case 'r':
-			snprintf(reply, MSG_MAX, "%s\r\n", slice);
-			break;
-		/* Send a ping */
-		case 'P': 
-			snprintf(reply, MSG_MAX, "PING %s\r\n", slice);
+			snprintf(reply, MSG_MAX, "%s\r\n", body);
 			break;
 		default: 
 			LOGERROR("Invalid command entered\n.");
@@ -358,28 +424,28 @@ proc_client_cmd(char reply[MSG_MAX], char const *path, char const *msg)
  * Poll all open file descriptors for incoming messages, and act upon them.
  */
 static void
-poll_fds(int sockfd)
+poll_fds(ServerConnection *sc)
 {
-	size_t i;
 	fd_set rd;
 	int maxfd;
 	int rv;
 	struct timeval tv;
-	Channels ch = {0, {0}, {0}};
 	char reply[MSG_MAX];
-	char buf[MSG_MAX];
+	Channel *cp;
 
 	/* Add the root channel for the connection */
-	channels_add(&ch, root_path);
+	sc->chan = channel_join(NULL, root_path);
 	while (1) {
 		FD_ZERO(&rd);
-		maxfd = sockfd;
-		FD_SET(sockfd, &rd);
-		for (i = 0; i < ch.n; ++i) {
-			if (maxfd < ch.fds[i])
-				maxfd = ch.fds[i];
-			FD_SET(ch.fds[i], &rd);
-		}
+		maxfd = sc->sockfd;
+		FD_SET(sc->sockfd, &rd);
+		cp = sc->chan;
+		do {
+			if (maxfd < cp->fd)
+				maxfd = cp->fd;
+			FD_SET(cp->fd, &rd);
+			cp = cp->next;
+		} while (cp != sc->chan);
 		tv.tv_sec = ping_timeout;
 		tv.tv_usec = 0;
 		rv = select(maxfd + 1, &rd, 0, 0, &tv);
@@ -389,30 +455,32 @@ poll_fds(int sockfd)
 			//TODO(todd): handle timeout with ping message.
 		}
 		/* Check for messages from remote host */
-		if (FD_ISSET(sockfd, &rd)) {
+		if (FD_ISSET(sc->sockfd, &rd)) {
 			do {
-				rv = readline(buf, sockfd);
+				rv = readline(sc->buf, sc->sockfd);
 				if (0 > rv)
 					LOGFATAL("Unable to read from socket");
-				LOGINFO("server: %s\n", buf);
-				if (proc_server_cmd(reply, &ch, buf)) {
-					write(sockfd, reply, strlen(reply));
+				LOGINFO("server: %s\n", sc->buf);
+				if (proc_server_cmd(reply, sc)) {
+					write(sc->sockfd, reply, strlen(reply));
 				}
 			} while (0 < rv);
 		}
-		for (i = 0; i < ch.n; ++i) {
-			if (FD_ISSET(ch.fds[i], &rd)) {
+		cp = sc->chan;
+		do {
+			if (FD_ISSET(cp->fd, &rd)) {
 				do {
-					rv = readline(buf, ch.fds[i]);
+					rv = readline(sc->buf, cp->fd);
 					if (0 > rv)
 						LOGFATAL("Unable to read from channel \"%s\"",
-							ch.paths[i]);
-					LOGINFO("%s: %s\n", ch.paths[i], buf);
-					if (proc_client_cmd(reply, ch.paths[i], buf))
-						write(sockfd, reply, strlen(reply));
+							cp->name);
+					LOGINFO("%s: %s\n", cp->name, sc->buf);
+					if (proc_channel_cmd(reply, cp, sc))
+						write(sc->sockfd, reply, strlen(reply));
 				} while (0 < rv);
 			}
-		}
+			cp = cp->next;
+		} while (cp != sc->chan);
 	}
 }
 
@@ -448,10 +516,15 @@ size_t
 tokenize(char const *tok[TOK_LAST], char *buf)
 {
 	size_t i;
-	size_t n;
+	Token n;
 	char *tmp;
 	char *saveptr = buf;
+	static const char *empty = "";
 
+	/* Initialize each token result to a null string for safety */
+	for (i = 0; i < TOK_LAST; ++i) {
+		tok[i] = empty;
+	}
 	for (n = (saveptr[0] == ':' ? TOK_NICK : TOK_CMD); n < TOK_LAST; ++n) {
 		switch (n) {
 		case TOK_NICK:
@@ -459,6 +532,10 @@ tokenize(char const *tok[TOK_LAST], char *buf)
 			saveptr += 1;
 			tok[n] = m_tok(&saveptr, " ");
 			n = TOK_CMD - 1;
+			break;
+		case TOK_CMD:
+		case TOK_CHAN:
+			tok[n] = m_tok(&saveptr, " ");
 			break;
 		case TOK_ARG:
 			/* Strip the whitespace */
@@ -475,8 +552,10 @@ tokenize(char const *tok[TOK_LAST], char *buf)
 			/* Grab the remainder of the text */
 			tok[n] = saveptr;
 			break;
-		default:
-			tok[n] = m_tok(&saveptr, " ");
+		case TOK_USER:
+		case TOK_HOST:
+		case TOK_LAST:
+			LOGFATAL("Tokenization error, attempt to parse token that shouldn't be\n");
 			break;
 		}
 	}
@@ -490,17 +569,15 @@ main(int argc, char **argv)
 	int i;
 	char const *opt_arg;
 	/* IRC connection context. */
-	int sockfd;
-	char prefix[PATH_MAX];
-	/* Arguments */
+	ServerConnection sc;
 	char const *host = NULL;
 	char const *port = default_port;
 	char const *directory = default_directory;
-	char nickname[32];
-	char realname[32];
+	char prefix[PATH_MAX];
 
-	strncpy(nickname, default_nickname, sizeof(nickname));
-	strncpy(realname, default_realname, sizeof(realname));
+	memset(&sc, 0, sizeof(sc));
+	strncpy(sc.nickname, default_nickname, sizeof(sc.nickname));
+	strncpy(sc.realname, default_realname, sizeof(sc.realname));
 	/* Set the program name */
 	argv0 = *argv;
 	if (argc < 2)
@@ -526,11 +603,11 @@ main(int argc, char **argv)
 					break;
 				case 'n':
 					if (!opt_arg) usage();
-					strncpy(nickname, opt_arg, sizeof(nickname));
+					strncpy(sc.nickname, opt_arg, IRC_NAME_MAX);
 					break;
 				case 'r':
 					if (!opt_arg) usage();
-					strncpy(realname, opt_arg, sizeof(realname));
+					strncpy(sc.realname, opt_arg, IRC_NAME_MAX);
 					break;
 				case 'p':
 					if (!opt_arg) usage();
@@ -547,20 +624,21 @@ main(int argc, char **argv)
 	}
 	if (!host)
 		usage();
-	/* Create the prefix from the directoryAppend hostname to prefix and slice it */
-	snprintf(prefix, PATH_MAX, "%s/%s", directory, host);
+	/* Create the prefix from the directory */
+	if (PATH_MAX <= snprintf(prefix, PATH_MAX, "%s/%s", directory, host))
+		LOGFATAL("Runtime directory path too long\n");
 	if (0 > mkdirpath(prefix))
-		LOGFATAL("Unable to create prefix directory\n");
-	LOGINFO("Root directory created.\n");
+		LOGFATAL("Unable to create runtime directory directory\n");
+	LOGINFO("Runtime directory created.\n");
 	/* Change to the prefix directory */
 	if (0 > chdir(prefix))
-		return EXIT_FAILURE;
+		LOGFATAL("Unable to chdir to runtime directory\n");
 	/* Open the irc-server connection */
-	if (0 > tcpopen(&sockfd, host, port, connect))
-		LOGFATAL("Could not connect to host \"%s\" on port \"%s\".\n",
+	if (0 > tcpopen(&sc.sockfd, host, port, connect))
+		LOGFATAL("Unable to connect to host \"%s\" on port \"%s\"\n",
 				host, port);
-	LOGINFO("Successfully initialized.\n");
-	login(sockfd, nickname, realname, host);
-	poll_fds(sockfd);
+	LOGINFO("Successfully initialized\n");
+	login(sc.sockfd, sc.nickname, sc.realname, host);
+	poll_fds(&sc);
 	return EXIT_SUCCESS;
 }
