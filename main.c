@@ -616,6 +616,8 @@ main(int argc, char **argv)
 				case 'D':
 					daemonize();
 					break;
+				default:
+					usage();
 				}
 			}
 		} else {
