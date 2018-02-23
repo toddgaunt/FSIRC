@@ -629,6 +629,10 @@ main(int argc, char **argv)
 	}
 	if (!host)
 		usage();
+	/* Open the irc-server connection */
+	if (0 > tcpopen(&sc.sockfd, host, port, connect))
+		LOGFATAL("Unable to connect to host \"%s\" on port \"%s\"\n",
+				host, port);
 	/* Create the prefix from the directory */
 	if (PATH_MAX <= snprintf(prefix, PATH_MAX, "%s/%s", directory, host))
 		LOGFATAL("Runtime directory path too long\n");
@@ -638,10 +642,6 @@ main(int argc, char **argv)
 	/* Change to the prefix directory */
 	if (0 > chdir(prefix))
 		LOGFATAL("Unable to chdir to runtime directory\n");
-	/* Open the irc-server connection */
-	if (0 > tcpopen(&sc.sockfd, host, port, connect))
-		LOGFATAL("Unable to connect to host \"%s\" on port \"%s\"\n",
-				host, port);
 	LOGINFO("Successfully initialized\n");
 	login(sc.sockfd, sc.nickname, sc.realname, host);
 	poll_fds(&sc);
