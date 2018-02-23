@@ -377,7 +377,7 @@ proc_channel_cmd(char reply[MSG_MAX], Channel *chan, ServerConnection *sc)
 		channel_printf(chan, "[%s] %s\n", sc->nickname, sc->buf);
 		snprintf(reply, MSG_MAX, "PRIVMSG %s :%s\r\n", chan->name, sc->buf);
 	} else if (sc->buf[0] == '/' && buf_len > 2) {
-		/* Remove leading whitespace. */
+		/* Index past leading whitespace. */
 		for (i = 2; i < buf_len && isspace(sc->buf[i]); ++i)
 			;
 		body = &sc->buf[i];
