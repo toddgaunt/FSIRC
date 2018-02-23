@@ -369,55 +369,52 @@ proc_server_cmd(char reply[MSG_MAX], ServerConnection *sc)
 bool
 proc_channel_cmd(char reply[MSG_MAX], Channel *chan, ServerConnection *sc)
 {
-	size_t i;
 	size_t buf_len = strlen(sc->buf);
 	char const *body;
 
 	if (sc->buf[0] != '/') {
 		channel_printf(chan, "[%s] %s\n", sc->nickname, sc->buf);
 		snprintf(reply, MSG_MAX, "PRIVMSG %s :%s\r\n", chan->name, sc->buf);
-	} else if (sc->buf[0] == '/' && buf_len > 2) {
-		/* Index past leading whitespace. */
-		for (i = 2; i < buf_len && isspace(sc->buf[i]); ++i)
-			;
-		body = &sc->buf[i];
-		printf("body: \"%s\"\n", body);
-		switch (sc->buf[1]) {
-		/* Set status to "away" */
-		case 'a':
-			if (3 < buf_len) {
-				snprintf(reply, MSG_MAX, "AWAY\r\n");
-			} else {
-				snprintf(reply, MSG_MAX, "AWAY :%s\r\n", body);
-			}
-			break;
-		/* Join a channel */
-		case 'j':
-			snprintf(reply, MSG_MAX, "JOIN %s\r\n", body);
-			break;
-		/* Send a "me" message */
-		case 'm':
-			channel_printf(chan, "* %s %s\n", sc->nickname, body);
-			snprintf(reply, MSG_MAX, "PRIVMSG %s :\001ACTION %s\001\r\n",
-					chan->name, body);
-			break;
-		/* Change nick name */
-		case 'n':
-			strncpy(sc->nickname, body, IRC_NAME_MAX);
-			snprintf(reply, MSG_MAX, "NICK %s\r\n", body);
-		/* Part from a channel */
-		case 'p': 
-			snprintf(reply, MSG_MAX, "PART %s\r\n", body);
-			break;
-		/* Send raw IRC protocol */
-		case 'r':
-			snprintf(reply, MSG_MAX, "%s\r\n", body);
-			break;
-		default: 
-			LOGERROR("Invalid command entered\n.");
-			return false;
+		return true;
+	}
+	if (sc->buf[0] == '/' && buf_len < 3)
+		return false;
+	/* Index past leading whitespace. */
+	for (body = sc->buf; *body && isspace(*body); ++body)
+		;
+	switch (sc->buf[1]) {
+	/* Set status to "away" */
+	case 'a':
+		if (3 < buf_len) {
+			snprintf(reply, MSG_MAX, "AWAY\r\n");
+		} else {
+			snprintf(reply, MSG_MAX, "AWAY :%s\r\n", body);
 		}
-	} else {
+		break;
+	/* Join a channel */
+	case 'j':
+		snprintf(reply, MSG_MAX, "JOIN %s\r\n", body);
+		break;
+	/* Send a "me" message */
+	case 'm':
+		channel_printf(chan, "* %s %s\n", sc->nickname, body);
+		snprintf(reply, MSG_MAX, "PRIVMSG %s :\001ACTION %s\001\r\n",
+				chan->name, body);
+		break;
+	/* Change nick name */
+	case 'n':
+		strncpy(sc->nickname, body, IRC_NAME_MAX);
+		snprintf(reply, MSG_MAX, "NICK %s\r\n", body);
+	/* Part from a channel */
+	case 'p': 
+		snprintf(reply, MSG_MAX, "PART %s\r\n", body);
+		break;
+	/* Send raw IRC protocol */
+	case 'r':
+		snprintf(reply, MSG_MAX, "%s\r\n", body);
+		break;
+	default: 
+		LOGERROR("Invalid command entered\n.");
 		return false;
 	}
 	return true;
