@@ -638,11 +638,10 @@ main(int argc, char **argv)
 		LOGFATAL("Runtime directory path too long\n");
 	if (0 > mkdirpath(prefix))
 		LOGFATAL("Unable to create runtime directory directory\n");
-	LOGINFO("Runtime directory created.\n");
 	/* Change to the prefix directory */
 	if (0 > chdir(prefix))
 		LOGFATAL("Unable to chdir to runtime directory\n");
-	LOGINFO("Successfully initialized\n");
+	LOGINFO("Successfully initialized in '%s'\n", prefix);
 	login(sc.sockfd, sc.nickname, sc.realname, host);
 	poll_fds(&sc);
 	return EXIT_SUCCESS;
