@@ -44,26 +44,6 @@
 
 #include "config.h"
 
-/* Logging macros */
-#define LOGINFO(...)\
-	do { \
-		fprintf(stderr, "%s", argv0); \
-		fprintf(stderr, ": info: "__VA_ARGS__); \
-	} while (0)
-
-#define LOGERROR(...)\
-	do { \
-		fprintf(stderr, "%s", argv0); \
-		fprintf(stderr, ": error: "__VA_ARGS__); \
-	} while (0)
-
-#define LOGFATAL(...)\
-	do { \
-		fprintf(stderr, "%s", argv0); \
-		fprintf(stderr, ": fatal: "__VA_ARGS__); \
-		exit(EXIT_FAILURE); \
-	} while (0)
-
 typedef enum {
 	/* Prefix */
 	TOK_NICK = 0,
@@ -97,24 +77,45 @@ typedef struct {
 	char buf[MSG_MAX];
 } ServerConnection;
 
+/* Logging macros */
+#define LOGINFO(...)\
+	do { \
+		fprintf(stderr, "%s", argv0); \
+		fprintf(stderr, ": info: "__VA_ARGS__); \
+	} while (0)
+
+#define LOGERROR(...)\
+	do { \
+		fprintf(stderr, "%s", argv0); \
+		fprintf(stderr, ": error: "__VA_ARGS__); \
+	} while (0)
+
+#define LOGFATAL(...)\
+	do { \
+		fprintf(stderr, "%s", argv0); \
+		fprintf(stderr, ": fatal: "__VA_ARGS__); \
+		exit(EXIT_FAILURE); \
+	} while (0)
+
+/* Channel operations */
+static void channel_printf(Channel *chan, size_t n, char const *fmt, ...);
+static Channel *channel_join(Channel *root, char const *name);
+static void channel_part(Channel *root, char const *name);
 static Channel *channel_create(char const *name);
 static void channel_destroy(Channel const *garbage);
 static Channel *channel_find(Channel *root, char const *name);
 static void channel_link(Channel *new, Channel *prev, Channel *next);
-static void channel_printf(Channel *chan, char const *fmt, ...);
-static Channel *channel_join(Channel *root, char const *name);
-static void channel_part(Channel *root, char const *name);
+
+/* Main procedures */
 void login(const int sockfd, char const *nick, char const *real, char const *host);
-void logtime(FILE *fp);
+static void logtime(FILE *fp, char const *date_format);
 static void poll_fds(ServerConnection *sc);
 bool proc_server_cmd(char reply[MSG_MAX], ServerConnection *sc);
 bool proc_client_cmd(char reply[MSG_MAX], char const *name, char const *msg);
-static int readline(char dest[MSG_MAX], int fd);
 size_t tokenize(char const *tok[TOK_LAST], char *buf);
 
 /* Program name */
 char const *argv0 = "";
-
 /* Root channel path */
 char const *root_path = ".";
 
@@ -194,7 +195,7 @@ channel_find(Channel *root, char const *name)
 	return NULL;
 }
 
-static Channel *
+Channel *
 channel_join(Channel *root, char const *name)
 {
 	Channel *new;
@@ -212,7 +213,7 @@ channel_join(Channel *root, char const *name)
 	return new;
 }
 
-static void
+void
 channel_part(Channel *root, char const *name)
 {
 	Channel const *garbage;
@@ -222,61 +223,23 @@ channel_part(Channel *root, char const *name)
 		channel_destroy(garbage);
 }
 
-static void
-channel_printf(Channel *chan, char const *fmt, ...)
+void
+channel_printf(Channel *chan, size_t n, char const *fmt, ...)
 {
 	FILE *fp;
 	va_list ap;
-	char buf[MSG_MAX];
+	char buf[n];
 
 	if (!(fp = fopen(chan->outpath, "a"))) {
 		LOGERROR("Output file \"%s\" failed to open.\n", chan->outpath);
 	} else {
-		logtime(fp);
+		logtime(fp, date_format);
 		va_start(ap, fmt);
-		vsnprintf(buf, MSG_MAX, fmt, ap);
+		vsnprintf(buf, n, fmt, ap);
 		fputs(buf, fp);
 		va_end(ap);
 		fclose(fp);
 	}
-}
-
-static int
-rstrip(char *str, char const *chs)
-{
-	size_t removed = 0;
-	size_t len = strlen(str);
-	char *begin = str + len - 1;
-	char *end = str;
-
-	if (0 == len)
-		return 0;
-	while (begin != end && strchr(chs, *begin)) {
-		++removed;
-		--begin;
-	}
-	str[len - removed] = '\0';
-	return removed;
-}
-
-static int
-readline(char dest[MSG_MAX], int fd)
-{
-	char ch = '\0';
-	size_t i;
-
-	for (i = 0; i < MSG_MAX && '\n' != ch; ++i) {
-		if (1 != read(fd, &ch, 1))
-			return -1;
-		dest[i] = ch;
-	}
-	dest[i] = '\0';
-	/* Remove line delimiters as they make logging difficult, and
-	 * aren't always standard, so its easier to add them again later */
-	rstrip(dest, "\r\n");
-	if (i >= MSG_MAX)
-		return 1;
-	return 0;
 }
 
 /**
@@ -297,8 +260,8 @@ login(const int sockfd, char const *nick, char const *real, char const *host)
 }
 
 /* Log the time to a file */
-void
-logtime(FILE *fp)
+static void
+logtime(FILE *fp, char const *date_format)
 {
 	char buf[64];
 	time_t t;
@@ -344,9 +307,6 @@ proc_server_cmd(char reply[MSG_MAX], ServerConnection *sc)
 		snprintf(sc->buf, MSG_MAX, "-!- %s kicked %s (%s)\n", argv[TOK_NICK], argv[TOK_ARG], argv[TOK_TEXT]);
 	} else {
 		channel = root_path;
-		/* Can't read this command */
-		LOGINFO("Cannot read command: %s\n", argv[TOK_CMD]);
-		return false;
 	}
 
 	if (!channel)  {
@@ -359,7 +319,7 @@ proc_server_cmd(char reply[MSG_MAX], ServerConnection *sc)
 	}
 
 	sc->chan = channel_join(sc->chan, channel);
-	channel_printf(sc->chan, sc->buf);
+	channel_printf(sc->chan, MSG_MAX, sc->buf);
 	return false;
 }
 
@@ -373,7 +333,7 @@ proc_channel_cmd(char reply[MSG_MAX], Channel *chan, ServerConnection *sc)
 	char const *body;
 
 	if (sc->buf[0] != '/') {
-		channel_printf(chan, "[%s] %s\n", sc->nickname, sc->buf);
+		channel_printf(chan, MSG_MAX, "[%s] %s\n", sc->nickname, sc->buf);
 		snprintf(reply, MSG_MAX, "PRIVMSG %s :%s\r\n", chan->name, sc->buf);
 		return true;
 	}
@@ -397,7 +357,7 @@ proc_channel_cmd(char reply[MSG_MAX], Channel *chan, ServerConnection *sc)
 		break;
 	/* Send a "me" message */
 	case 'm':
-		channel_printf(chan, "* %s %s\n", sc->nickname, body);
+		channel_printf(chan, MSG_MAX, "* %s %s\n", sc->nickname, body);
 		snprintf(reply, MSG_MAX, "PRIVMSG %s :\001ACTION %s\001\r\n",
 				chan->name, body);
 		break;
@@ -457,7 +417,7 @@ poll_fds(ServerConnection *sc)
 		/* Check for messages from remote host */
 		if (FD_ISSET(sc->sockfd, &rd)) {
 			do {
-				rv = readline(sc->buf, sc->sockfd);
+				rv = readline(sc->buf, MSG_MAX, sc->sockfd);
 				if (0 > rv)
 					LOGFATAL("Unable to read from socket");
 				LOGINFO("server: %s\n", sc->buf);
@@ -470,7 +430,7 @@ poll_fds(ServerConnection *sc)
 		do {
 			if (FD_ISSET(cp->fd, &rd)) {
 				do {
-					rv = readline(sc->buf, cp->fd);
+					rv = readline(sc->buf, MSG_MAX, cp->fd);
 					if (0 > rv)
 						LOGFATAL("Unable to read from channel \"%s\"",
 							cp->name);
@@ -540,7 +500,9 @@ tokenize(char const *tok[TOK_LAST], char *buf)
 		case TOK_ARG:
 			/* Strip the whitespace */
 			tmp = m_tok(&saveptr, ":");
-			rstrip(tmp, " \r\n\t");
+			for (i = strlen(tmp) - 1; i == 0; --i)
+				if (isspace(tmp[i]))
+					tmp[i] = '\0';
 			/* Save the token */
 			tok[n] = tmp;
 			/* Strip the whitespace */
@@ -565,7 +527,7 @@ tokenize(char const *tok[TOK_LAST], char *buf)
 int
 main(int argc, char **argv) 
 {
-	/* Argument parsing */
+	/* Argument parsing variables */
 	int i;
 	char const *opt_arg;
 	/* IRC connection context. */

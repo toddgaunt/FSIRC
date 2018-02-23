@@ -97,11 +97,6 @@ tcpopen(
 	return 0;
 }
 
-/**
- * Recursively make directories down a fullpath.
- *
- * Return: 0 if directory path is fully created. -1 if mkdir fails.
- */
 int
 mkdirpath(char const *path)
 {
@@ -127,3 +122,43 @@ mkdirpath(char const *path)
 			return -1;
 	return 0;
 }
+
+/* Used by readline to strip line delimiters */
+static int
+rstrip(char *str, char const *chs)
+{
+	size_t removed = 0;
+	size_t len = strlen(str);
+	char *begin = str + len - 1;
+	char *end = str;
+
+	if (0 == len)
+		return 0;
+	while (begin != end && strchr(chs, *begin)) {
+		++removed;
+		--begin;
+	}
+	str[len - removed] = '\0';
+	return removed;
+}
+
+int
+readline(char *dest, size_t n, int fd)
+{
+	char ch = '\0';
+	size_t i;
+
+	for (i = 0; i < n && '\n' != ch; ++i) {
+		if (1 != read(fd, &ch, 1))
+			return -1;
+		dest[i] = ch;
+	}
+	dest[i] = '\0';
+	/* Remove line delimiters as they make logging difficult, and
+	 * aren't always standard, so its easier to add them again later */
+	rstrip(dest, "\r\n");
+	if (i >= n)
+		return 1;
+	return 0;
+}
+
