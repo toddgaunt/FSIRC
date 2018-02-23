@@ -326,22 +326,22 @@ proc_server_cmd(char reply[MSG_MAX], ServerConnection *sc)
 		snprintf(reply, MSG_MAX, "PONG %s\r\n", argv[TOK_TEXT]);
 		return true;
 	} else if (0 == strcmp("JOIN", argv[TOK_CMD])) {
-		snprintf(sc->buf, MSG_MAX, "--> %s joined %s", argv[TOK_NICK], argv[TOK_ARG]);
+		snprintf(sc->buf, MSG_MAX, "--> %s joined %s\n", argv[TOK_NICK], argv[TOK_ARG]);
 	} else if (0 == strcmp("PART", argv[TOK_CMD])) {
-		snprintf(sc->buf, MSG_MAX, "<-- %s parted from %s", argv[TOK_NICK], argv[TOK_ARG]);
+		snprintf(sc->buf, MSG_MAX, "<-- %s parted from %s\n", argv[TOK_NICK], argv[TOK_ARG]);
 	} else if (0 == strcmp("PRIVMSG", argv[TOK_CMD])) {
 		snprintf(sc->buf, MSG_MAX, "<%s> %s\n", argv[TOK_NICK], argv[TOK_TEXT]);
 	} else if (0 == strcmp("NOTICE", argv[TOK_CMD])) {
-		snprintf(sc->buf, MSG_MAX, "-!- %s", argv[TOK_TEXT]);
+		snprintf(sc->buf, MSG_MAX, "-!- %s\n", argv[TOK_TEXT]);
 	} else if (0 == strcmp("MODE", argv[TOK_CMD])) {
-		snprintf(sc->buf, MSG_MAX, "-!- %s changed mode %s -> %s %s",
+		snprintf(sc->buf, MSG_MAX, "-!- %s changed mode %s -> %s %s\n",
 				argv[TOK_NICK],
 				argv[TOK_CHAN],
 				argv[TOK_ARG],
 				argv[TOK_TEXT]);
 		channel = root_path;
 	} else if (0 == strcmp("KICK", argv[TOK_CMD])) {
-		snprintf(sc->buf, MSG_MAX, "-!- %s kicked %s (%s)", argv[TOK_NICK], argv[TOK_ARG], argv[TOK_TEXT]);
+		snprintf(sc->buf, MSG_MAX, "-!- %s kicked %s (%s)\n", argv[TOK_NICK], argv[TOK_ARG], argv[TOK_TEXT]);
 	} else {
 		channel = root_path;
 		/* Can't read this command */
