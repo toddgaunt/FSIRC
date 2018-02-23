@@ -21,6 +21,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <assert.h>
+#include <stdarg.h>
 
 #include "sys.h"
 
@@ -100,7 +101,7 @@ static Channel *channel_create(char const *name);
 static void channel_destroy(Channel const *garbage);
 static Channel *channel_find(Channel *root, char const *name);
 static void channel_link(Channel *new, Channel *prev, Channel *next);
-static void channel_log(Channel *ch, char const *msg);
+static void channel_printf(Channel *chan, char const *fmt, ...);
 static Channel *channel_join(Channel *root, char const *name);
 static void channel_part(Channel *root, char const *name);
 void login(const int sockfd, char const *nick, char const *real, char const *host);
@@ -222,15 +223,20 @@ channel_part(Channel *root, char const *name)
 }
 
 static void
-channel_log(Channel *chan, char const *msg)
+channel_printf(Channel *chan, char const *fmt, ...)
 {
 	FILE *fp;
+	va_list ap;
+	char buf[MSG_MAX];
 
 	if (!(fp = fopen(chan->outpath, "a"))) {
 		LOGERROR("Output file \"%s\" failed to open.\n", chan->outpath);
 	} else {
 		logtime(fp);
-		fprintf(fp, " %s\n", msg);
+		va_start(ap, fmt);
+		vsnprintf(buf, MSG_MAX, fmt, ap);
+		fputs(buf, fp);
+		va_end(ap);
 		fclose(fp);
 	}
 }
@@ -312,11 +318,10 @@ proc_server_cmd(char reply[MSG_MAX], ServerConnection *sc)
 {
 	char tmp[MSG_MAX];
 	char const *argv[TOK_LAST] = {0};
-	size_t argc;
 	char const *channel = NULL;
 
 	strncpy(tmp, sc->buf, MSG_MAX);
-	argc = tokenize(argv, tmp);
+	tokenize(argv, tmp);
 	if (0 == strcmp("PING", argv[TOK_CMD])) {
 		snprintf(reply, MSG_MAX, "PONG %s\r\n", argv[TOK_TEXT]);
 		return true;
@@ -354,7 +359,7 @@ proc_server_cmd(char reply[MSG_MAX], ServerConnection *sc)
 	}
 
 	sc->chan = channel_join(sc->chan, channel);
-	channel_log(sc->chan, sc->buf);
+	channel_printf(sc->chan, sc->buf);
 	return false;
 }
 
@@ -369,8 +374,7 @@ proc_channel_cmd(char reply[MSG_MAX], Channel *chan, ServerConnection *sc)
 	char const *body;
 
 	if (sc->buf[0] != '/') {
-		snprintf(reply, MSG_MAX, "[%s] %s\n", sc->nickname, sc->buf);
-		channel_log(chan, reply);
+		channel_printf(chan, "[%s] %s\n", sc->nickname, sc->buf);
 		snprintf(reply, MSG_MAX, "PRIVMSG %s :%s\r\n", chan->name, sc->buf);
 	} else if (sc->buf[0] == '/' && buf_len > 2) {
 		/* Remove leading whitespace. */
@@ -389,8 +393,7 @@ proc_channel_cmd(char reply[MSG_MAX], Channel *chan, ServerConnection *sc)
 			break;
 		/* Send a "me" message */
 		case 'm':
-			snprintf(reply, MSG_MAX, "* %s %s\n", sc->nickname, body);
-			channel_log(chan, reply);
+			channel_printf(chan, "* %s %s\n", sc->nickname, body);
 			snprintf(reply, MSG_MAX, "PRIVMSG %s :\001ACTION %s\001\r\n",
 					chan->name, body);
 			break;
