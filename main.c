@@ -383,13 +383,17 @@ proc_channel_cmd(char reply[MSG_MAX], Channel *chan, ServerConnection *sc)
 		body = &sc->buf[i];
 		printf("body: \"%s\"\n", body);
 		switch (sc->buf[1]) {
+		/* Set status to "away" */
+		case 'a':
+			if (3 < buf_len) {
+				snprintf(reply, MSG_MAX, "AWAY\r\n");
+			} else {
+				snprintf(reply, MSG_MAX, "AWAY :%s\r\n", body);
+			}
+			break;
 		/* Join a channel */
 		case 'j':
 			snprintf(reply, MSG_MAX, "JOIN %s\r\n", body);
-			break;
-		/* Part from a channel */
-		case 'p': 
-			snprintf(reply, MSG_MAX, "PART %s\r\n", body);
 			break;
 		/* Send a "me" message */
 		case 'm':
@@ -401,13 +405,9 @@ proc_channel_cmd(char reply[MSG_MAX], Channel *chan, ServerConnection *sc)
 		case 'n':
 			strncpy(sc->nickname, body, IRC_NAME_MAX);
 			snprintf(reply, MSG_MAX, "NICK %s\r\n", body);
-		/* Set status to "away" */
-		case 'a':
-			if (3 < buf_len) {
-				snprintf(reply, MSG_MAX, "AWAY\r\n");
-			} else {
-				snprintf(reply, MSG_MAX, "AWAY :%s\r\n", body);
-			}
+		/* Part from a channel */
+		case 'p': 
+			snprintf(reply, MSG_MAX, "PART %s\r\n", body);
 			break;
 		/* Send raw IRC protocol */
 		case 'r':
